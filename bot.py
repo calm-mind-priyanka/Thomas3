@@ -1,234 +1,205 @@
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
-from telethon.tl.custom import Button
-import os, asyncio, json, threading, time
+import asyncio, json, time, os, threading
 from fastapi import FastAPI
 import uvicorn
 
-app = FastAPI()
-@app.get("/")
-async def root():
-    return {"status": "Bot is alive!"}
-threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
-
 API_ID = 23739953
 API_HASH = "cf389d498c77dd79d877e33a6f7bc03f"
-SESSION = "1BVtsOJwBuzQs91-vpRA6BdUyhXKJS_s5uLvo_k5fvt6DO3RfFDA6LwSTL1TKKqfXHUwwUy3LiDt6DM5Q1SBP4sSvv_dT2pLiOD5-PU7rfTsqcw8vNqm5igK3XTx-V4DUL0fFN1C1YYM1BdkuhIeSR8yuo5aVTL4xyRQ6emmRNsyJpn9W5Y9GTOptJLYn8z0WVLMaPrm21NmbfbXjSQoaluc8DJ0OzrV7-w0-2l524Fsmh-nlu75B2f8z56OE13hyCgFNnjzGGSMl8MwSIKERxpZQuDqZXWO4M7YOolJ757EuygcaH_6CUdvIRcDep-4JrUyMunNQTmEkXRtDnFjtXIyvP39VWuw="  # your session
+SESSION = "1BVtsOJwBuzQs91-vpRA6BdUyhXKJS_s5uLvo_k5fvt6DO3RfFDA6LwSTL1TKKqfXHUwwUy3LiDt6DM5Q1SBP4sSvv_dT2pLiOD5-PU7rfTsqcw8vNqm5igK3XTx-V4DUL0fFN1C1YYM1BdkuhIeSR8yuo5aVTL4xyRQ6emmRNsyJpn9W5Y9GTOptJLYn8z0WVLMaPrm21NmbfbXjSQoaluc8DJ0OzrV7-w0-2l524Fsmh-nlu75B2f8z56OE13hyCgFNnjzGGSMl8MwSIKERxpZQuDqZXWO4M7YOolJ757EuygcaH_6CUdvIRcDep-4JrUyMunNQTmEkXRtDnFjtXIyvP39VWuw="
 ADMINS = [7229962808]
-GROUPS_FILE, SETTINGS_FILE, STRIKES_FILE = "groups.json", "settings.json", "strikes.json"
 
-AUTO_REPLY_MSG = "🏷️ Your Files are ready now\n📂 540p | 720p | 1080p\n📌 Download & Watch|https://t.me/+bwi-Oeeg11g2ZmI1"
+SETTINGS_FILE = "group_settings.json"
+STRIKES_FILE = "strikes.json"
 
-def load_data():
-    try: groups = set(json.load(open(GROUPS_FILE)))
-    except: groups = set()
-    try:
-        data = json.load(open(SETTINGS_FILE))
-        reply_msg = data.get("reply_msg", AUTO_REPLY_MSG)
-        delete_delay = data.get("delete_delay", 15)
-        reply_gap = data.get("reply_gap", 30)
-        delete_all_enabled = data.get("delete_all_enabled", False)
-    except:
-        reply_msg, delete_delay, reply_gap, delete_all_enabled = AUTO_REPLY_MSG, 15, 30, False
-    try: strikes = json.load(open(STRIKES_FILE))
-    except: strikes = {}
-    return groups, reply_msg, delete_delay, reply_gap, delete_all_enabled, strikes
+app = FastAPI()
+@app.get("/")
+async def root(): return {"status": "Bot is alive!"}
+threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
 
-def save_all():
-    json.dump(list(TARGET_GROUPS), open(GROUPS_FILE, "w"))
-    json.dump({
-        "reply_msg": AUTO_REPLY_MSG,
-        "delete_delay": DELETE_DELAY,
-        "reply_gap": REPLY_GAP,
-        "delete_all_enabled": DELETE_ALL_ENABLED
-    }, open(SETTINGS_FILE, "w"))
-    json.dump(STRIKES, open(STRIKES_FILE, "w"))
-
-TARGET_GROUPS, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, DELETE_ALL_ENABLED, STRIKES = load_data()
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
+GROUP_SETTINGS = {}
+STRIKES = {}
 last_reply_time = {}
 
-PROMOTION_TRIGGERS = [
-    "dm me", "msg me", "movie mere paas", "join my group", "telegram.me/",
-    "check bio", "promotion", "send message", "insta", "bio me"
-]
+if os.path.exists(SETTINGS_FILE): GROUP_SETTINGS = json.load(open(SETTINGS_FILE))
+if os.path.exists(STRIKES_FILE): STRIKES = json.load(open(STRIKES_FILE))
 
-FUNNY_WARNINGS = [
-    "😅 Oye bro! Group mein kisi ko reply mat karo. Aisa lagta hai date fix kar rahe ho! 🤭",
-    "😁 Bhai bhai bhai... reply nahi karna allowed! Warna log samjhenge tum admin ho 🤫",
-    "🤣 Kya yeh tumhare phupa ka ladka/ladki hai jo reply kar rahe ho?",
-    "😜 Shadi pakki samjhe kya? Public mein romance band karo!"
-]
+def save_settings(): json.dump(GROUP_SETTINGS, open(SETTINGS_FILE, "w"))
+def save_strikes(): json.dump(STRIKES, open(STRIKES_FILE, "w"))
 
-async def handle_strike(chat_id, user_id, event):
-    key = f"{chat_id}_{user_id}"
-    STRIKES[key] = STRIKES.get(key, 0) + 1
-    save_all()
-    level = STRIKES[key]
-    if level == 1:
-        msg = await event.reply("⚠️ *Warning!* Ye group free hai, apna dhanda bahar karo!")
-        await asyncio.sleep(7)
-        await msg.delete()
-    elif level == 2:
-        await client.edit_permissions(chat_id, user_id, send_messages=False)
-        m = await event.reply("🔇 Mute laga diya bhai 5 min ke liye!")
-        await asyncio.sleep(300)
-        await client.edit_permissions(chat_id, user_id, send_messages=True)
-        await asyncio.sleep(7)
-        await m.delete()
-    elif level == 3:
-        await client.edit_permissions(chat_id, user_id, send_messages=False)
-        m = await event.reply("🔕 24 ghante ke liye mute! Akl thikane aayegi.")
-        await asyncio.sleep(86400)
-        await client.edit_permissions(chat_id, user_id, send_messages=True)
-        await asyncio.sleep(7)
-        await m.delete()
-    elif level >= 4:
-        await client.kick_participant(chat_id, user_id)
-        m = await event.reply("🔨 Banned! Promotion karna allowed nahi!")
-        await asyncio.sleep(7)
-        await m.delete()
+PROMOTION_TRIGGERS = ["dm me", "msg me", "pm me", "text me", "inbox me", "ping me",
+"join my group", "join group", "telegram.me/", "t.me/", "promotion", "promote", "group link", "channel link", "visit channel",
+"bio me", "check bio", "link in bio", "click bio", "see bio", "insta", "instagram", "follow me", "youtube", "yt", "shorts",
+"mere paas movie", "movie mere pass", "mere paas hai", "mere paas", "film mere paas", "movie link", "send link", "link lelo",
+"group join karo", "add me", "movie in dm", "dm for movie", "group ka link", "join fast", "join now", "link de diya",
+"de dia link", "movie ke liye dm", "telegram join", "telegram group", "new channel", "channel join", "connect with me", 
+"promotion only", "chat with me"]
+FUNNY_WARNINGS = ["🤣 Bhai, yahan reply allowed nahi!", "😜 Public mein reply mat kar!", "😁 Reply karna mana hai boss!"]
 
-@client.on(events.NewMessage)
-async def message_handler(event):
-    try:
-        if not event.is_group: return
-        me = await client.get_me()
-        my_perms = await client.get_permissions(event.chat_id, me.id)
-        if not my_perms.is_admin or not my_perms.delete_messages: return
-        sender = await event.get_sender()
-        if sender.bot: return
-        if event.is_reply:
-            reply_msg = await event.get_reply_message()
-            if reply_msg and reply_msg.sender_id != me.id:
-                sender_perms = await client.get_permissions(event.chat_id, sender.id)
-                if sender_perms and not sender_perms.is_admin:
-                    text = event.text.lower()
-                    if any(p in text for p in PROMOTION_TRIGGERS):
-                        await event.delete()
-                        await handle_strike(event.chat_id, sender.id, event)
-                    else:
-                        await event.delete()
-                        funny = FUNNY_WARNINGS[hash(event.sender_id) % len(FUNNY_WARNINGS)]
-                        msg = await event.respond(funny)
-                        await asyncio.sleep(7)
-                        await msg.delete()
-        if DELETE_ALL_ENABLED:
-            await asyncio.sleep(1)
-            await event.delete()
-    except Exception as e:
-        print(f"[!] Handler error: {e}")
-
-@client.on(events.NewMessage)
-async def auto_reply_handler(event):
-    try:
-        sender = await event.get_sender()
-        if (
-            event.chat_id in TARGET_GROUPS and
-            event.sender_id != (await client.get_me()).id and
-            not getattr(sender, 'bot', False)
-        ):
-            now = time.time()
-            if now - last_reply_time.get(event.chat_id, 0) < REPLY_GAP:
-                return
-            last_reply_time[event.chat_id] = now
-            if "|" in AUTO_REPLY_MSG:
-                msg_text, button_link = AUTO_REPLY_MSG.split("|", 1)
-                btn = [Button.url("📂 CLICK HERE FOR FILE 📂", button_link.strip())]
-                sent = await event.respond(msg_text.strip(), buttons=btn)
-            else:
-                sent = await event.reply(AUTO_REPLY_MSG)
-            if DELETE_DELAY > 0:
-                await asyncio.sleep(DELETE_DELAY)
-                await sent.delete()
-    except Exception as e:
-        print(f"[!] Auto-reply error: {e}")
-
-@client.on(events.NewMessage(pattern="/add"))
-async def cmd_add(event):
+@client.on(events.NewMessage(pattern="/start"))
+async def start_handler(event):
     if event.sender_id in ADMINS:
-        try:
-            gid = int(event.text.split(" ", 1)[1])
-            TARGET_GROUPS.add(gid)
-            save_all()
-            await event.reply(f"✅ Group added: `{gid}`")
-        except: await event.reply("❌ Use: `/add <group_id>`")
+        btn = [Button.inline("📋 View Groups", b"view_groups"), Button.inline("🧽 Main", b"main_panel")]
+        await event.reply("Welcome Admin. Choose an option:", buttons=btn)
 
-@client.on(events.NewMessage(pattern="/remove"))
-async def cmd_remove(event):
-    if event.sender_id in ADMINS:
-        try:
-            gid = int(event.text.split(" ", 1)[1])
-            TARGET_GROUPS.discard(gid)
-            save_all()
-            await event.reply(f"❎ Removed: `{gid}`")
-        except: await event.reply("❌ Use: `/remove <group_id>`")
+@client.on(events.CallbackQuery(data=b"view_groups"))
+async def show_groups(event):
+    btns = []
+    for gid in GROUP_SETTINGS:
+        title = GROUP_SETTINGS[gid].get("title", "Unnamed")
+        btns.append([Button.inline(f"⚙️ {title}", f"group_{gid}".encode())])
+    btns.append([Button.inline("➕ Add Group", b"add_group")])
+    btns.append([Button.inline("🔙 Back", b"main_panel")])
+    await event.edit("📋 Group List:", buttons=btns)
 
-@client.on(events.NewMessage(pattern="/setmsg"))
-async def cmd_setmsg(event):
-    if event.sender_id in ADMINS:
-        try:
-            global AUTO_REPLY_MSG
-            AUTO_REPLY_MSG = event.text.split(" ", 1)[1]
-            save_all()
-            await event.reply("✅ Custom button message set!")
-        except: await event.reply("❌ Use: `/setmsg Text|https://link`")
+@client.on(events.CallbackQuery(pattern=b"group_(.*)"))
+async def group_options(event):
+    gid = event.data.decode().split("_")[1]
+    btn = [
+        [Button.inline("✏️ Set Msg", f"setmsg_{gid}".encode()), Button.inline("🕒 Set Delay", f"setdel_{gid}".encode())],
+        [Button.inline("⏱️ Set Gap", f"setgap_{gid}".encode()), Button.inline("🧹 Toggle DeleteAll", f"toggledelete_{gid}".encode())],
+        [Button.inline("🔙 Back", b"view_groups")]
+    ]
+    await event.edit(f"⚙️ Settings for Group ID: `{gid}`", buttons=btn)
 
-@client.on(events.NewMessage(pattern="/delmsg"))
-async def cmd_delmsg(event):
-    if event.sender_id in ADMINS:
-        global AUTO_REPLY_MSG
-        AUTO_REPLY_MSG = ""
-        save_all()
-        await event.reply("🗑️ Auto reply message cleared.")
+@client.on(events.CallbackQuery(pattern=b"setmsg_(.*)"))
+async def setmsg_prompt(event): await event.edit("✏️ Send new message with format:\n`Text|https://link`")
+
+@client.on(events.NewMessage(pattern="/set"))
+async def handle_set(event):
+    if event.reply_to_msg_id:
+        reply = await event.get_reply_message()
+        parts = reply.text.split("|")
+        if len(parts) == 2:
+            gid = str(event.chat_id)
+            GROUP_SETTINGS.setdefault(gid, {})["msg"] = reply.text
+            save_settings()
+            await event.reply("✅ Message set!")
+
+@client.on(events.CallbackQuery(pattern=b"setdel_(.*)"))
+async def set_del(event): await event.edit("🕒 Send: `/setdel <seconds>`")
 
 @client.on(events.NewMessage(pattern="/setdel"))
-async def cmd_setdel(event):
-    if event.sender_id in ADMINS:
-        try:
-            global DELETE_DELAY
-            DELETE_DELAY = int(event.text.split(" ", 1)[1])
-            save_all()
-            await event.reply(f"🕒 Delete delay set: {DELETE_DELAY}s")
-        except: await event.reply("❌ Use: `/setdel <seconds>`")
+async def handle_del(event):
+    try:
+        parts = event.text.split()
+        GROUP_SETTINGS.setdefault(str(event.chat_id), {})["delay"] = int(parts[1])
+        save_settings()
+        await event.reply("✅ Delete delay set!")
+    except: await event.reply("❌ Format: `/setdel <seconds>`")
+
+@client.on(events.CallbackQuery(pattern=b"setgap_(.*)"))
+async def set_gap(event): await event.edit("⏱️ Send: `/setgap <seconds>`")
 
 @client.on(events.NewMessage(pattern="/setgap"))
-async def cmd_setgap(event):
+async def handle_gap(event):
+    try:
+        parts = event.text.split()
+        GROUP_SETTINGS.setdefault(str(event.chat_id), {})["gap"] = int(parts[1])
+        save_settings()
+        await event.reply("✅ Reply gap set!")
+    except: await event.reply("❌ Format: `/setgap <seconds>`")
+
+@client.on(events.CallbackQuery(pattern=b"toggledelete_(.*)"))
+async def toggle_delete(event):
+    gid = event.data.decode().split("_")[1]
+    setting = GROUP_SETTINGS.setdefault(gid, {})
+    setting["deleteall"] = not setting.get("deleteall", False)
+    save_settings()
+    status = "ON" if setting["deleteall"] else "OFF"
+    await event.edit(f"🧹 DeleteAll now: {status}", buttons=[[Button.inline("🔙 Back", b"view_groups")]])
+
+# /main for managing extra options
+@client.on(events.NewMessage(pattern="/main"))
+async def main_cmd(event):
     if event.sender_id in ADMINS:
-        try:
-            global REPLY_GAP
-            REPLY_GAP = int(event.text.split(" ", 1)[1])
-            save_all()
-            await event.reply(f"⏳ Reply gap set: {REPLY_GAP}s")
-        except: await event.reply("❌ Use: `/setgap <seconds>`")
+        btn = [[Button.inline("🧽 AutoDelete (Members Only)", b"autodel_members")], [Button.inline("🔙 Back", b"start_menu")]]
+        await event.reply("Main Settings:", buttons=btn)
 
-@client.on(events.NewMessage(pattern="/deleteall on"))
-async def enable_delete_all(event):
-    if event.sender_id in ADMINS:
-        global DELETE_ALL_ENABLED
-        DELETE_ALL_ENABLED = True
-        save_all()
-        await event.reply("🧹 Now deleting all messages in 1 sec!")
+@client.on(events.CallbackQuery(data=b"main_panel"))
+async def main_panel(event):
+    btn = [[Button.inline("🧽 AutoDelete (Members Only)", b"autodel_members")], [Button.inline("🔙 Back", b"start_menu")]]
+    await event.edit("Main Settings:", buttons=btn)
 
-@client.on(events.NewMessage(pattern="/deleteall off"))
-async def disable_delete_all(event):
-    if event.sender_id in ADMINS:
-        global DELETE_ALL_ENABLED
-        DELETE_ALL_ENABLED = False
-        save_all()
-        await event.reply("🚫 Stopped deleting all messages.")
+@client.on(events.CallbackQuery(data=b"start_menu"))
+async def go_start_menu(event):
+    btn = [Button.inline("📋 View Groups", b"view_groups"), Button.inline("🧽 Main", b"main_panel")]
+    await event.edit("Welcome Admin. Choose an option:", buttons=btn)
 
-@client.on(events.NewMessage(pattern="/id"))
-async def id_cmd(event):
-    if event.is_group:
-        chat = await event.get_chat()
-        await event.reply(f"👥 {chat.title}\n📢 ID: `{event.chat_id}`\n👤 Your ID: `{event.sender_id}`")
-    else:
-        await event.reply(f"👤 Your ID: `{event.sender_id}`")
+@client.on(events.CallbackQuery(data=b"autodel_members"))
+async def toggle_member_delete(event):
+    gid = str(event.chat_id)
+    setting = GROUP_SETTINGS.setdefault(gid, {})
+    setting["autodel_members_only"] = not setting.get("autodel_members_only", False)
+    save_settings()
+    status = "ON" if setting["autodel_members_only"] else "OFF"
+    await event.edit(f"🧽 AutoDelete (Members Only): {status}", buttons=[[Button.inline("🔙 Back", b"main_panel")]])
 
-async def main():
-    print("✅ Bot running")
-    await client.run_until_disconnected()
+@client.on(events.NewMessage)
+async def all_handler(event):
+    if not event.is_group: return
+    gid = str(event.chat_id)
+    sender = await event.get_sender()
+    me = await client.get_me()
+    my_perms = await client.get_permissions(event.chat_id, me.id)
+    if not my_perms.is_admin or sender.bot: return
+
+    # Auto-delete member messages only
+    if GROUP_SETTINGS.get(gid, {}).get("autodel_members_only") and not sender.id in ADMINS:
+        await event.delete(); return
+
+    # Promotion filter
+    if event.is_reply:
+        reply = await event.get_reply_message()
+        if reply.sender_id != me.id:
+            if sender.id not in ADMINS:
+                text = event.text.lower()
+                if any(x in text for x in PROMOTION_TRIGGERS):
+                    key = f"{gid}_{sender.id}"
+                    STRIKES[key] = STRIKES.get(key, 0) + 1
+                    lvl = STRIKES[key]
+                    save_strikes()
+                    await event.delete()
+                    if lvl == 1:
+                        msg = await event.reply("⚠️ Warning!")
+                        await asyncio.sleep(7); await msg.delete()
+                    elif lvl == 2:
+                        await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
+                        msg = await event.reply("🔇 Muted 5min")
+                        await asyncio.sleep(300)
+                        await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
+                        await asyncio.sleep(7); await msg.delete()
+                    elif lvl == 3:
+                        await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
+                        msg = await event.reply("🔕 Muted 24hr")
+                        await asyncio.sleep(86400)
+                        await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
+                        await asyncio.sleep(7); await msg.delete()
+                    else:
+                        await client.kick_participant(event.chat_id, sender.id)
+                        msg = await event.reply("🔨 Banned!")
+                        await asyncio.sleep(7); await msg.delete()
+                else:
+                    await event.delete()
+                    warn = FUNNY_WARNINGS[hash(sender.id) % len(FUNNY_WARNINGS)]
+                    msg = await event.respond(warn)
+                    await asyncio.sleep(7); await msg.delete()
+
+    settings = GROUP_SETTINGS.get(gid, {})
+    if "msg" in settings:
+        gap = settings.get("gap", 30)
+        delay = settings.get("delay", 15)
+        now = time.time()
+        if now - last_reply_time.get(gid, 0) >= gap:
+            last_reply_time[gid] = now
+            if "|" in settings["msg"]:
+                txt, link = settings["msg"].split("|", 1)
+                btn = [Button.url("📂 CLICK HERE FOR FILE", link.strip())]
+                sent = await event.reply(txt.strip(), buttons=btn)
+            else:
+                sent = await event.reply(settings["msg"])
+            await asyncio.sleep(delay); await sent.delete()
 
 client.start()
-client.loop.run_until_complete(main())
+client.run_until_disconnected()
