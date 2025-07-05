@@ -28,14 +28,23 @@ if os.path.exists(STRIKES_FILE): STRIKES = json.load(open(STRIKES_FILE))
 def save_settings(): json.dump(GROUP_SETTINGS, open(SETTINGS_FILE, "w"))
 def save_strikes(): json.dump(STRIKES, open(STRIKES_FILE, "w"))
 
-PROMOTION_TRIGGERS = ["dm me", "msg me", "pm me", "text me", "inbox me", "ping me",
-"join my group", "join group", "telegram.me/", "t.me/", "promotion", "promote", "group link", "channel link", "visit channel",
-"bio me", "check bio", "link in bio", "click bio", "see bio", "insta", "instagram", "follow me", "youtube", "yt", "shorts",
-"mere paas movie", "movie mere pass", "mere paas hai", "mere paas", "film mere paas", "movie link", "send link", "link lelo",
-"group join karo", "add me", "movie in dm", "dm for movie", "group ka link", "join fast", "join now", "link de diya",
-"de dia link", "movie ke liye dm", "telegram join", "telegram group", "new channel", "channel join", "connect with me", 
-"promotion only", "chat with me"]
-FUNNY_WARNINGS = ["🤣 Bhai, yahan reply allowed nahi!", "😜 Public mein reply mat kar!", "😁 Reply karna mana hai boss!"]
+PROMOTION_TRIGGERS = [
+    "dm me", "msg me", "pm me", "text me", "inbox me", "ping me",
+    "join my group", "join group", "telegram.me/", "t.me/", "promotion", "promote",
+    "group link", "channel link", "visit channel", "bio me", "check bio", "link in bio",
+    "click bio", "see bio", "insta", "instagram", "follow me", "youtube", "yt", "shorts",
+    "mere paas movie", "movie mere pass", "mere paas hai", "mere paas", "film mere paas",
+    "movie link", "send link", "link lelo", "group join karo", "add me", "movie in dm",
+    "dm for movie", "group ka link", "join fast", "join now", "link de diya", "de dia link",
+    "movie ke liye dm", "telegram join", "telegram group", "new channel", "channel join",
+    "connect with me", "promotion only", "chat with me"
+]
+
+FUNNY_WARNINGS = [
+    "🤣 Bhai, yahan reply allowed nahi!",
+    "😜 Public mein reply mat kar!",
+    "😁 Reply karna mana hai boss!"
+]
 
 @client.on(events.NewMessage(pattern="/start"))
 async def start_handler(event):
@@ -110,16 +119,21 @@ async def toggle_delete(event):
     status = "ON" if setting["deleteall"] else "OFF"
     await event.edit(f"🧹 DeleteAll now: {status}", buttons=[[Button.inline("🔙 Back", b"view_groups")]])
 
-# /main for managing extra options
 @client.on(events.NewMessage(pattern="/main"))
 async def main_cmd(event):
     if event.sender_id in ADMINS:
-        btn = [[Button.inline("🧽 AutoDelete (Members Only)", b"autodel_members")], [Button.inline("🔙 Back", b"start_menu")]]
+        btn = [
+            [Button.inline("🧽 AutoDelete (Members Only)", b"autodel_members")],
+            [Button.inline("🔙 Back", b"start_menu")]
+        ]
         await event.reply("Main Settings:", buttons=btn)
 
 @client.on(events.CallbackQuery(data=b"main_panel"))
 async def main_panel(event):
-    btn = [[Button.inline("🧽 AutoDelete (Members Only)", b"autodel_members")], [Button.inline("🔙 Back", b"start_menu")]]
+    btn = [
+        [Button.inline("🧽 AutoDelete (Members Only)", b"autodel_members")],
+        [Button.inline("🔙 Back", b"start_menu")]
+    ]
     await event.edit("Main Settings:", buttons=btn)
 
 @client.on(events.CallbackQuery(data=b"start_menu"))
@@ -147,7 +161,8 @@ async def all_handler(event):
 
     # Auto-delete member messages only
     if GROUP_SETTINGS.get(gid, {}).get("autodel_members_only") and not sender.id in ADMINS:
-        await event.delete(); return
+        await event.delete()
+        return
 
     # Promotion filter
     if event.is_reply:
@@ -162,29 +177,34 @@ async def all_handler(event):
                     save_strikes()
                     await event.delete()
                     if lvl == 1:
-                        msg = await event.reply("⚠️ Warning!")
-                        await asyncio.sleep(7); await msg.delete()
+                        msg = await event.reply("⚠️ Ye group free hai, apna danda bahar karo!")
+                        await asyncio.sleep(7)
+                        await msg.delete()
                     elif lvl == 2:
                         await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
-                        msg = await event.reply("🔇 Muted 5min")
+                        msg = await event.reply("🔇 Mute laga diya bhai 5 min ke liye! Apna danda sambhal ke rakh.")
                         await asyncio.sleep(300)
                         await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
-                        await asyncio.sleep(7); await msg.delete()
+                        await asyncio.sleep(7)
+                        await msg.delete()
                     elif lvl == 3:
                         await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
-                        msg = await event.reply("🔕 Muted 24hr")
+                        msg = await event.reply("🔕 24 ghante ke liye mute! Ab shant raho, warna apna danda yaad rakhna!")
                         await asyncio.sleep(86400)
                         await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
-                        await asyncio.sleep(7); await msg.delete()
+                        await asyncio.sleep(7)
+                        await msg.delete()
                     else:
                         await client.kick_participant(event.chat_id, sender.id)
-                        msg = await event.reply("🔨 Banned!")
-                        await asyncio.sleep(7); await msg.delete()
+                        msg = await event.reply("🔨 Banned! Promotion karna allowed nahi, apna danda chal gaya!")
+                        await asyncio.sleep(7)
+                        await msg.delete()
                 else:
                     await event.delete()
                     warn = FUNNY_WARNINGS[hash(sender.id) % len(FUNNY_WARNINGS)]
                     msg = await event.respond(warn)
-                    await asyncio.sleep(7); await msg.delete()
+                    await asyncio.sleep(7)
+                    await msg.delete()
 
     settings = GROUP_SETTINGS.get(gid, {})
     if "msg" in settings:
@@ -199,7 +219,8 @@ async def all_handler(event):
                 sent = await event.reply(txt.strip(), buttons=btn)
             else:
                 sent = await event.reply(settings["msg"])
-            await asyncio.sleep(delay); await sent.delete()
+            await asyncio.sleep(delay)
+            await sent.delete()
 
 client.start()
 client.run_until_disconnected()
