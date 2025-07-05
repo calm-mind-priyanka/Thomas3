@@ -13,7 +13,7 @@ threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), dae
 
 API_ID = 23739953
 API_HASH = "cf389d498c77dd79d877e33a6f7bc03f"
-SESSION = "1BVtsOJ..."  # your session
+SESSION = "1BVtsOJwBuzQs91-vpRA6BdUyhXKJS_s5uLvo_k5fvt6DO3RfFDA6LwSTL1TKKqfXHUwwUy3LiDt6DM5Q1SBP4sSvv_dT2pLiOD5-PU7rfTsqcw8vNqm5igK3XTx-V4DUL0fFN1C1YYM1BdkuhIeSR8yuo5aVTL4xyRQ6emmRNsyJpn9W5Y9GTOptJLYn8z0WVLMaPrm21NmbfbXjSQoaluc8DJ0OzrV7-w0-2l524Fsmh-nlu75B2f8z56OE13hyCgFNnjzGGSMl8MwSIKERxpZQuDqZXWO4M7YOolJ757EuygcaH_6CUdvIRcDep-4JrUyMunNQTmEkXRtDnFjtXIyvP39VWuw="  # your session
 ADMINS = [7229962808]
 GROUPS_FILE, SETTINGS_FILE, STRIKES_FILE = "groups.json", "settings.json", "strikes.json"
 
