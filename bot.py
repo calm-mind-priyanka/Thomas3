@@ -1,6 +1,5 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors import ChatWriteForbiddenError
 from telethon.tl.custom import Button
 import os, asyncio, json, threading, time
 from fastapi import FastAPI
@@ -14,21 +13,23 @@ threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), dae
 
 API_ID = 23739953
 API_HASH = "cf389d498c77dd79d877e33a6f7bc03f"
-SESSION = "1BVtsOJwBuzQs91-vpRA6BdUyhXKJS_s5uLvo_k5fvt6DO3RfFDA6LwSTL1TKKqfXHUwwUy3LiDt6DM5Q1SBP4sSvv_dT2pLiOD5-PU7rfTsqcw8vNqm5igK3XTx-V4DUL0fFN1C1YYM1BdkuhIeSR8yuo5aVTL4xyRQ6emmRNsyJpn9W5Y9GTOptJLYn8z0WVLMaPrm21NmbfbXjSQoaluc8DJ0OzrV7-w0-2l524Fsmh-nlu75B2f8z56OE13hyCgFNnjzGGSMl8MwSIKERxpZQuDqZXWO4M7YOolJ757EuygcaH_6CUdvIRcDep-4JrUyMunNQTmEkXRtDnFjtXIyvP39VWuw="  # your session
+SESSION = "1BVtsOJ..."  # your session
 ADMINS = [7229962808]
 GROUPS_FILE, SETTINGS_FILE, STRIKES_FILE = "groups.json", "settings.json", "strikes.json"
+
+AUTO_REPLY_MSG = "🏷️ Your Files are ready now\n📂 540p | 720p | 1080p\n📌 Download & Watch|https://t.me/+bwi-Oeeg11g2ZmI1"
 
 def load_data():
     try: groups = set(json.load(open(GROUPS_FILE)))
     except: groups = set()
     try:
         data = json.load(open(SETTINGS_FILE))
-        reply_msg = data.get("reply_msg", "")
+        reply_msg = data.get("reply_msg", AUTO_REPLY_MSG)
         delete_delay = data.get("delete_delay", 15)
         reply_gap = data.get("reply_gap", 30)
         delete_all_enabled = data.get("delete_all_enabled", False)
     except:
-        reply_msg, delete_delay, reply_gap, delete_all_enabled = "", 15, 30, False
+        reply_msg, delete_delay, reply_gap, delete_all_enabled = AUTO_REPLY_MSG, 15, 30, False
     try: strikes = json.load(open(STRIKES_FILE))
     except: strikes = {}
     return groups, reply_msg, delete_delay, reply_gap, delete_all_enabled, strikes
@@ -43,18 +44,13 @@ def save_all():
     }, open(SETTINGS_FILE, "w"))
     json.dump(STRIKES, open(STRIKES_FILE, "w"))
 
-# Default reply message (pre-filled with group link)
-AUTO_REPLY_MSG = """🏷️ Your Files are ready now
-📂 540p | 720p | 1080p
-📌 Download & Watch | https://t.me/+bwi-Oeeg11g2ZmI1"""
-
-TARGET_GROUPS, _, DELETE_DELAY, REPLY_GAP, DELETE_ALL_ENABLED, STRIKES = load_data()
+TARGET_GROUPS, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, DELETE_ALL_ENABLED, STRIKES = load_data()
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 last_reply_time = {}
 
 PROMOTION_TRIGGERS = [
     "dm me", "msg me", "movie mere paas", "join my group", "telegram.me/",
-    "check bio", "promotion", "send message", "I have the movie", "insta", "bio me"
+    "check bio", "promotion", "send message", "insta", "bio me"
 ]
 
 FUNNY_WARNINGS = [
@@ -70,20 +66,28 @@ async def handle_strike(chat_id, user_id, event):
     save_all()
     level = STRIKES[key]
     if level == 1:
-        await event.reply("⚠️ *Warning!* Ye group free hai, apna dhanda bahar karo!")
+        msg = await event.reply("⚠️ *Warning!* Ye group free hai, apna dhanda bahar karo!")
+        await asyncio.sleep(7)
+        await msg.delete()
     elif level == 2:
         await client.edit_permissions(chat_id, user_id, send_messages=False)
-        await event.reply("🔇 Mute laga diya bhai 5 min ke liye!")
+        m = await event.reply("🔇 Mute laga diya bhai 5 min ke liye!")
         await asyncio.sleep(300)
         await client.edit_permissions(chat_id, user_id, send_messages=True)
+        await asyncio.sleep(7)
+        await m.delete()
     elif level == 3:
         await client.edit_permissions(chat_id, user_id, send_messages=False)
-        await event.reply("🔕 24 ghante ke liye mute! Akl thikane aayegi.")
+        m = await event.reply("🔕 24 ghante ke liye mute! Akl thikane aayegi.")
         await asyncio.sleep(86400)
         await client.edit_permissions(chat_id, user_id, send_messages=True)
+        await asyncio.sleep(7)
+        await m.delete()
     elif level >= 4:
         await client.kick_participant(chat_id, user_id)
-        await event.reply("🔨 Banned! Promotion karna allowed nahi!")
+        m = await event.reply("🔨 Banned! Promotion karna allowed nahi!")
+        await asyncio.sleep(7)
+        await m.delete()
 
 @client.on(events.NewMessage)
 async def message_handler(event):
@@ -94,7 +98,6 @@ async def message_handler(event):
         if not my_perms.is_admin or not my_perms.delete_messages: return
         sender = await event.get_sender()
         if sender.bot: return
-
         if event.is_reply:
             reply_msg = await event.get_reply_message()
             if reply_msg and reply_msg.sender_id != me.id:
@@ -106,10 +109,10 @@ async def message_handler(event):
                         await handle_strike(event.chat_id, sender.id, event)
                     else:
                         await event.delete()
-                        warn = FUNNY_WARNINGS[hash(event.sender_id) % len(FUNNY_WARNINGS)]
-                        await event.respond(warn)
-                    return
-
+                        funny = FUNNY_WARNINGS[hash(event.sender_id) % len(FUNNY_WARNINGS)]
+                        msg = await event.respond(funny)
+                        await asyncio.sleep(7)
+                        await msg.delete()
         if DELETE_ALL_ENABLED:
             await asyncio.sleep(1)
             await event.delete()
@@ -129,14 +132,12 @@ async def auto_reply_handler(event):
             if now - last_reply_time.get(event.chat_id, 0) < REPLY_GAP:
                 return
             last_reply_time[event.chat_id] = now
-
             if "|" in AUTO_REPLY_MSG:
                 msg_text, button_link = AUTO_REPLY_MSG.split("|", 1)
                 btn = [Button.url("📂 CLICK HERE FOR FILE 📂", button_link.strip())]
                 sent = await event.respond(msg_text.strip(), buttons=btn)
             else:
                 sent = await event.reply(AUTO_REPLY_MSG)
-
             if DELETE_DELAY > 0:
                 await asyncio.sleep(DELETE_DELAY)
                 await sent.delete()
@@ -228,5 +229,6 @@ async def id_cmd(event):
 async def main():
     print("✅ Bot running")
     await client.run_until_disconnected()
+
 client.start()
 client.loop.run_until_complete(main())
