@@ -1,84 +1,133 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors import ChatWriteForbiddenError
-import os
-import asyncio
-import json
-import threading
-import time
+import os, asyncio, json, threading, time, re
 from fastapi import FastAPI
 import uvicorn
 
-# 🔹 Health check for Koyeb
+# ✅ FastAPI health check
 app = FastAPI()
 @app.get("/")
 async def root():
     return {"status": "Bot is alive!"}
+threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
 
-def run_web():
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+# 🔐 Telegram credentials
+API_ID = 26526374
+API_HASH = "78706cc9b3ce0a77873daaa035ab8356"
+SESSION = "1BVtsOJ..."  # shortened
+ADMINS = [7030400049]
+GROUPS_FILE, SETTINGS_FILE, STRIKES_FILE = "groups.json", "settings.json", "strikes.json"
 
-threading.Thread(target=run_web, daemon=True).start()
-
-# 🔹 Telegram credentials
-API_ID = 22938364
-API_HASH = "81cc7882c88b7cb7785cb1a8d59e93a8"
-SESSION = "1BVtsOJwBuzjwnv-Q9-rNWjr9LrPJBq0swEvwkmGKwm4ainxC3UkeMsDflfLwAfxZwxhrKnAjfSD2fipWKnRKLa92HgMD1S5aHcFkxBFcHUtYdln9OQVx8ZQ3nroVXDP7Ahy-14wIwjVCUGDwsrPZFpD0p9vDya_rqigzgbUSuLZ9z-LW5E95C7uejbZRjbywW4BCNEP7eIYgRMy2-9Tj3GtjFmZztJy-B_lArxtJ6R9GWgO9GX2ZPS2b8XyC4-HVuHj-it1RSX4-fp5r0AhsgFEA6vA0giUDcmHzUzJIWeB7aKma2FUSvxAODe0jncBbwRLZfGiZm8AeT4b-sMfWVgEySHWzttc="
-
-ADMINS = [6046055058]
-GROUPS_FILE = "groups.json"
-SETTINGS_FILE = "settings.json"
-
-# 🔹 Load saved data
+# 📁 Load data
 def load_data():
     try:
-        with open(GROUPS_FILE, "r") as f:
-            groups = set(json.load(f))
-    except:
-        groups = set()
-
+        with open(GROUPS_FILE, "r") as f: groups = set(json.load(f))
+    except: groups = set()
     try:
         with open(SETTINGS_FILE, "r") as f:
             data = json.load(f)
-            reply_msg = data.get("reply_msg", "SEARCH YOUR MOVIE HERE @Yourmovielinkk")
+            reply_msg = data.get("reply_msg", "")
             delete_delay = data.get("delete_delay", 15)
             reply_gap = data.get("reply_gap", 30)
+            delete_all_enabled = data.get("delete_all_enabled", False)
     except:
-        reply_msg = "SEARCH YOUR MOVIE HERE @Yourmovielinkk"
-        delete_delay = 15
-        reply_gap = 30
+        reply_msg, delete_delay, reply_gap, delete_all_enabled = "", 15, 30, False
+    try:
+        with open(STRIKES_FILE, "r") as f: strikes = json.load(f)
+    except: strikes = {}
+    return groups, reply_msg, delete_delay, reply_gap, delete_all_enabled, strikes
 
-    return groups, reply_msg, delete_delay, reply_gap
-
-def save_groups(groups):
-    with open(GROUPS_FILE, "w") as f:
-        json.dump(list(groups), f)
-
-def save_settings(reply_msg, delete_delay, reply_gap):
+def save_all():
+    with open(GROUPS_FILE, "w") as f: json.dump(list(TARGET_GROUPS), f)
     with open(SETTINGS_FILE, "w") as f:
-        json.dump({"reply_msg": reply_msg, "delete_delay": delete_delay, "reply_gap": reply_gap}, f)
+        json.dump({
+            "reply_msg": AUTO_REPLY_MSG,
+            "delete_delay": DELETE_DELAY,
+            "reply_gap": REPLY_GAP,
+            "delete_all_enabled": DELETE_ALL_ENABLED
+        }, f)
+    with open(STRIKES_FILE, "w") as f: json.dump(STRIKES, f)
 
-# 🔹 Load
-TARGET_GROUPS, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP = load_data()
+# 🔄 Load
+TARGET_GROUPS, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, DELETE_ALL_ENABLED, STRIKES = load_data()
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
-
-# Store last reply times per group
 last_reply_time = {}
 
-# 🔹 Auto add group when userbot joins
-@client.on(events.ChatAction)
-async def auto_add_group_on_join(event):
-    if event.user_joined or event.user_added:
-        me = await client.get_me()
-        if event.user_id == me.id and event.is_group:
-            TARGET_GROUPS.add(event.chat_id)
-            save_groups(TARGET_GROUPS)
-            print(f"[+] Auto-added group: {event.chat_id}")
+PROMOTION_TRIGGERS = [
+    "dm me", "msg me", "movie mere paas", "join my group", "telegram.me/",
+    "check bio", "my insta", "promotion", "send message", "I have the movie"
+]
 
-# 🔹 Auto-reply handler (only human users)
+# 🟢 Normal reply warn
+FUNNY_WARNINGS = [
+    "😅 Oye bro! Group mein kisi ko reply mat karo. Aisa lagta hai date fix kar rahe ho! 🤭",
+    "😁 Bhai bhai bhai... reply nahi karna allowed! Warna log samjhenge tum admin ho 🤫",
+    "🤣 Kya yeh tumhare phupa ka ladka/ladki hai jo reply kar rahe ho?",
+    "😜 Shadi pakki samjhe kya? Public mein romance band karo!"
+]
+
+# 🔴 Strike punishments
+async def handle_strike(chat_id, user_id, event):
+    key = f"{chat_id}_{user_id}"
+    STRIKES[key] = STRIKES.get(key, 0) + 1
+    save_all()
+    level = STRIKES[key]
+
+    if level == 1:
+        await event.reply("⚠️ *Warning!* Ye group free hai, apna dhanda bahar karo!")
+    elif level == 2:
+        await client.edit_permissions(chat_id, user_id, send_messages=False)
+        await event.reply("🔇 Mute laga diya bhai 5 min ke liye!")
+        await asyncio.sleep(300)
+        await client.edit_permissions(chat_id, user_id, send_messages=True)
+    elif level == 3:
+        await client.edit_permissions(chat_id, user_id, send_messages=False)
+        await event.reply("🔕 24 ghante ke liye mute! Akl thikane aayegi.")
+        await asyncio.sleep(86400)
+        await client.edit_permissions(chat_id, user_id, send_messages=True)
+    elif level >= 4:
+        await client.kick_participant(chat_id, user_id)
+        await event.reply("🔨 Banned! Promotion karna allowed nahi!")
+
+# 🔐 Block reply & spam
 @client.on(events.NewMessage)
-async def handler(event):
-    global DELETE_DELAY, REPLY_GAP
+async def message_handler(event):
+    try:
+        if not event.is_group: return
+        me = await client.get_me()
+        my_perms = await client.get_permissions(event.chat_id, me.id)
+        if not my_perms.is_admin or not my_perms.delete_messages: return
+        sender = await event.get_sender()
+        if sender.bot: return
+
+        # 🧹 Clean user replies
+        if event.is_reply:
+            reply_msg = await event.get_reply_message()
+            if reply_msg and reply_msg.sender_id != me.id:
+                sender_perms = await client.get_permissions(event.chat_id, sender.id)
+                if sender_perms and not sender_perms.is_admin:
+                    text = event.text.lower()
+                    if any(promo in text for promo in PROMOTION_TRIGGERS):
+                        await event.delete()
+                        await handle_strike(event.chat_id, sender.id, event)
+                    else:
+                        await event.delete()
+                        msg = FUNNY_WARNINGS[hash(event.sender_id) % len(FUNNY_WARNINGS)]
+                        await event.respond(msg)
+                    return
+
+        # 🔘 If full deletion enabled
+        if DELETE_ALL_ENABLED:
+            await asyncio.sleep(1)
+            await event.delete()
+
+    except Exception as e:
+        print(f"[!] Handler error: {e}")
+
+# 🔁 Optional auto-reply
+@client.on(events.NewMessage)
+async def auto_reply_handler(event):
     try:
         sender = await event.get_sender()
         if (
@@ -87,108 +136,101 @@ async def handler(event):
             not getattr(sender, 'bot', False)
         ):
             now = time.time()
-            last = last_reply_time.get(event.chat_id, 0)
-
-            if now - last < REPLY_GAP:
-                return  # too soon
-
+            if now - last_reply_time.get(event.chat_id, 0) < REPLY_GAP:
+                return
             last_reply_time[event.chat_id] = now
-            sent_msg = await event.reply(AUTO_REPLY_MSG)
+            sent = await event.reply(AUTO_REPLY_MSG)
             if DELETE_DELAY > 0:
                 await asyncio.sleep(DELETE_DELAY)
-                try:
-                    await sent_msg.delete()
-                except Exception as e:
-                    print(f"[!] Couldn't delete message: {e}")
-    except ChatWriteForbiddenError:
-        print(f"[!] Cannot write in {event.chat_id}, bot might be restricted.")
-    except Exception as e:
-        print(f"[!] Unhandled error: {e}")
+                await sent.delete()
+    except: pass
 
-# 🔹 Admin Commands
+# 🧠 Admin Commands
 @client.on(events.NewMessage(pattern="/add"))
-async def add_group(event):
+async def cmd_add(event):
     if event.sender_id in ADMINS:
         try:
-            group_id = int(event.message.text.split(" ", 1)[1])
-            TARGET_GROUPS.add(group_id)
-            save_groups(TARGET_GROUPS)
-            await event.reply(f"✅ Added group: `{group_id}`")
-        except:
-            await event.reply("❌ Error: Provide a valid group ID.")
+            gid = int(event.text.split(" ", 1)[1])
+            TARGET_GROUPS.add(gid)
+            save_all()
+            await event.reply(f"✅ Group added: `{gid}`")
+        except: await event.reply("❌ Use: `/add <group_id>`")
 
 @client.on(events.NewMessage(pattern="/remove"))
-async def remove_group(event):
+async def cmd_remove(event):
     if event.sender_id in ADMINS:
         try:
-            group_id = int(event.message.text.split(" ", 1)[1])
-            TARGET_GROUPS.discard(group_id)
-            save_groups(TARGET_GROUPS)
-            await event.reply(f"❎ Removed group: `{group_id}`")
-        except:
-            await event.reply("❌ Error: Provide a valid group ID.")
+            gid = int(event.text.split(" ", 1)[1])
+            TARGET_GROUPS.discard(gid)
+            save_all()
+            await event.reply(f"❎ Removed: `{gid}`")
+        except: await event.reply("❌ Use: `/remove <group_id>`")
 
 @client.on(events.NewMessage(pattern="/setmsg"))
-async def set_msg(event):
-    global AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP
+async def cmd_setmsg(event):
     if event.sender_id in ADMINS:
         try:
-            AUTO_REPLY_MSG = event.message.text.split(" ", 1)[1]
-            save_settings(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP)
-            await event.reply("✅ Reply message updated!")
-        except:
-            await event.reply("❌ Error: Provide a message.")
+            global AUTO_REPLY_MSG
+            AUTO_REPLY_MSG = event.text.split(" ", 1)[1]
+            save_all()
+            await event.reply("✅ Reply message updated.")
+        except: await event.reply("❌ Use: `/setmsg <text>`")
 
 @client.on(events.NewMessage(pattern="/delmsg"))
-async def del_msg(event):
-    global AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP
+async def cmd_delmsg(event):
     if event.sender_id in ADMINS:
+        global AUTO_REPLY_MSG
         AUTO_REPLY_MSG = ""
-        save_settings(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP)
+        save_all()
         await event.reply("🗑️ Auto reply message cleared.")
 
 @client.on(events.NewMessage(pattern="/setdel"))
-async def set_del(event):
-    global DELETE_DELAY, AUTO_REPLY_MSG, REPLY_GAP
+async def cmd_setdel(event):
     if event.sender_id in ADMINS:
         try:
-            seconds = int(event.message.text.split(" ", 1)[1])
-            DELETE_DELAY = max(0, seconds)
-            save_settings(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP)
-            await event.reply(f"⏱️ Auto-delete time set to {DELETE_DELAY} seconds.")
-        except:
-            await event.reply("❌ Error: Provide a number of seconds.")
+            global DELETE_DELAY
+            DELETE_DELAY = int(event.text.split(" ", 1)[1])
+            save_all()
+            await event.reply(f"🕒 Delete delay set: {DELETE_DELAY}s")
+        except: await event.reply("❌ Use: `/setdel <seconds>`")
 
 @client.on(events.NewMessage(pattern="/setgap"))
-async def set_gap(event):
-    global REPLY_GAP, DELETE_DELAY, AUTO_REPLY_MSG
+async def cmd_setgap(event):
     if event.sender_id in ADMINS:
         try:
-            seconds = int(event.message.text.split(" ", 1)[1])
-            REPLY_GAP = max(0, seconds)
-            save_settings(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP)
-            await event.reply(f"⏳ Time gap between replies set to {REPLY_GAP} seconds.")
-        except:
-            await event.reply("❌ Error: Provide a number of seconds.")
+            global REPLY_GAP
+            REPLY_GAP = int(event.text.split(" ", 1)[1])
+            save_all()
+            await event.reply(f"⏳ Reply gap set: {REPLY_GAP}s")
+        except: await event.reply("❌ Use: `/setgap <seconds>`")
 
-# 🔹 Group & User ID Finder
+@client.on(events.NewMessage(pattern="/deleteall on"))
+async def enable_delete_all(event):
+    if event.sender_id in ADMINS:
+        global DELETE_ALL_ENABLED
+        DELETE_ALL_ENABLED = True
+        save_all()
+        await event.reply("🧹 Now deleting all messages in 1 sec!")
+
+@client.on(events.NewMessage(pattern="/deleteall off"))
+async def disable_delete_all(event):
+    if event.sender_id in ADMINS:
+        global DELETE_ALL_ENABLED
+        DELETE_ALL_ENABLED = False
+        save_all()
+        await event.reply("🚫 Stopped deleting all messages.")
+
 @client.on(events.NewMessage(pattern="/id"))
-async def id_command(event):
-    if event.is_group or event.is_channel:
+async def id_cmd(event):
+    if event.is_group:
         chat = await event.get_chat()
-        await event.reply(
-            f"🆔 Group Info:\n"
-            f"👥 Group Name: {chat.title}\n"
-            f"📢 Chat ID: `{event.chat_id}`\n"
-            f"👤 Your User ID: `{event.sender_id}`"
-        )
+        await event.reply(f"👥 {chat.title}\n📢 ID: `{event.chat_id}`\n👤 Your ID: `{event.sender_id}`")
     else:
-        await event.reply(f"👤 This is a private chat.\nYour ID: `{event.sender_id}`")
+        await event.reply(f"👤 Your ID: `{event.sender_id}`")
 
-# 🔹 Start bot
+# ▶️ Start
 async def main():
-    print("🤖 Bot is running...")
+    print("✅ Bot running")
     await client.run_until_disconnected()
-
 client.start()
 client.loop.run_until_complete(main())
