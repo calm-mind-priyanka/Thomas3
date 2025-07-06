@@ -19,6 +19,7 @@ SETTINGS_FILE = "settings.json"
 STRIKES_FILE = "strikes.json"
 
 PROMO_TRIGGERS = ["dm me", "pm me", "join group", "t.me/", "http", "https", "@", ".me/", "link in bio", "telegram group", "promotion", "follow me", "movie link"]
+FUNNY_RESPONSES = ["😏 Kya bhai? Tera fufa ka ladka ya lakhi hai kya?"]
 STRIKES = {}
 
 def load_data():
@@ -78,7 +79,7 @@ async def remove_group(event):
         if event.chat_id in TARGET_GROUPS:
             TARGET_GROUPS.remove(event.chat_id)
             save_groups(TARGET_GROUPS)
-            await event.reply("❌ Group removed.")
+            await event.reply("❌ Group removed from auto-reply.")
         else:
             await event.reply("⚠️ Group not in list.")
 
@@ -90,7 +91,7 @@ async def set_msg(event):
             global AUTO_REPLY_MSG
             AUTO_REPLY_MSG = msg[1]
             save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-            await event.reply("✅ Message updated.")
+            await event.reply("✅ Auto-reply message updated.")
         else:
             await event.reply("⚠️ Usage: /setmsg Your Message")
 
@@ -101,7 +102,7 @@ async def set_gap(event):
             global REPLY_GAP
             REPLY_GAP = int(event.raw_text.split(" ", 1)[1])
             save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-            await event.reply(f"✅ Gap set to {REPLY_GAP} sec.")
+            await event.reply(f"✅ Reply gap set to {REPLY_GAP} seconds.")
         except:
             await event.reply("⚠️ Usage: /setgap 30")
 
@@ -112,7 +113,7 @@ async def set_del(event):
             global DELETE_DELAY
             DELETE_DELAY = int(event.raw_text.split(" ", 1)[1])
             save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-            await event.reply(f"✅ Delete delay set to {DELETE_DELAY} sec.")
+            await event.reply(f"✅ Delete delay set to {DELETE_DELAY} seconds.")
         except:
             await event.reply("⚠️ Usage: /setdel 15")
 
@@ -129,29 +130,54 @@ async def toggle_autodel(event):
             await event.reply("⚠️ Usage: /autodel on or /autodel off")
 
 @client.on(events.NewMessage)
-async def global_moderation(event):
+async def message_handler(event):
+    global AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON
+    if not event.is_group: return
     sender = await event.get_sender()
     me = await client.get_me()
-    text = event.raw_text.lower()
-    is_group = event.is_group
-    is_me_admin = (await client.get_permissions(event.chat_id, me.id)).is_admin if is_group else False
+    now = time.time()
+    text = event.text.lower()
     is_promo = any(x in text for x in PROMO_TRIGGERS) or len(text) > 100
 
-    # 🔥 Global auto-delete promo logic (NO command needed, just make admin)
-    if is_group and is_promo and sender.id != me.id and not sender.bot and is_me_admin:
-        try:
+    # ✅ Promotion or spam text auto-delete if userbot is admin and autodel is on
+    if AUTO_DEL_ON and sender.id != me.id and not sender.bot:
+        perms = await client.get_permissions(event.chat_id, me.id)
+        if perms.is_admin:
             await event.delete()
-        except: pass
+            return
 
-    # 🤖 Auto-reply logic only if group is added
-    if is_group and event.chat_id in TARGET_GROUPS and sender.id != me.id and not sender.bot:
-        now = time.time()
+    # ✅ Member replies with promotion text — strike-based punishment (no need for /add)
+    if event.is_reply and sender.id != me.id and not sender.bot:
+        reply = await event.get_reply_message()
+        if reply and reply.sender_id != me.id and is_promo:
+            key = f"{event.chat_id}_{sender.id}"
+            STRIKES[key] = STRIKES.get(key, 0) + 1
+            level = STRIKES[key]
+            save_strikes()
+            await event.delete()
+            if level == 1:
+                msg = await event.reply("⚠️ First Warning! Apna dhandha yahan nahi.")
+                await asyncio.sleep(5); await msg.delete()
+            elif level == 2:
+                msg = await event.reply("⛔ Second Warning! Agli baar mute milega.")
+                await asyncio.sleep(5); await msg.delete()
+            elif level == 3:
+                await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
+                msg = await event.reply("🤐 Muted for 5 minutes.")
+                await asyncio.sleep(300)
+                await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
+                await asyncio.sleep(2); await msg.delete()
+            else:
+                await client.kick_participant(event.chat_id, sender.id)
+                await event.respond("🔨 Banned for repeated promotions.")
+
+    # ✅ Auto-reply only in added groups
+    if event.chat_id in TARGET_GROUPS and sender.id != me.id and not sender.bot:
         if now - last_reply_time.get(event.chat_id, 0) >= REPLY_GAP:
             last_reply_time[event.chat_id] = now
-            try:
-                msg = await event.reply(AUTO_REPLY_MSG)
-                await asyncio.sleep(DELETE_DELAY)
-                await msg.delete()
+            msg = await event.reply(AUTO_REPLY_MSG)
+            await asyncio.sleep(DELETE_DELAY)
+            try: await msg.delete()
             except: pass
 
 while True:
@@ -160,5 +186,5 @@ while True:
         client.start()
         client.run_until_disconnected()
     except Exception as e:
-        print(f"⚠️ Error: {e}\n🔁 Restarting...")
+        print(f"⚠️ Error: {e}\n🔁 Restarting in 5 seconds...")
         time.sleep(5)
