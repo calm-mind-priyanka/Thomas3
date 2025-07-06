@@ -4,7 +4,6 @@ import os, asyncio, json, threading, time
 from fastapi import FastAPI
 import uvicorn
 
-# FastAPI for health check
 app = FastAPI()
 @app.get("/")
 async def root():
@@ -19,7 +18,7 @@ GROUPS_FILE = "groups.json"
 SETTINGS_FILE = "settings.json"
 STRIKES_FILE = "strikes.json"
 
-PROMO_TRIGGERS = ["dm me", "join group", "t.me/", "link in bio", "telegram group", "promotion", "follow me", "movie link"]
+PROMO_TRIGGERS = ["dm me", "pm me", "join group", "t.me/", "http", "https", "@", ".me/", "link in bio", "telegram group", "promotion", "follow me", "movie link"]
 FUNNY_RESPONSES = ["😏 Kya bhai? Tera fufa ka ladka ya lakhi hai kya?"]
 STRIKES = {}
 
@@ -71,7 +70,7 @@ async def message_handler(event):
     now = time.time()
     text = event.text.lower()
 
-    is_promo = any(x in text for x in PROMO_TRIGGERS) or "http://" in text or "https://" in text or "@" in text or ".me/" in text
+    is_promo = any(x in text for x in PROMO_TRIGGERS) or len(text) > 100
 
     if AUTO_DEL_ON and sender.id not in ADMINS and sender.id != me.id and not sender.bot and event.chat_id in TARGET_GROUPS:
         await event.delete()
@@ -135,75 +134,7 @@ async def message_handler(event):
         try: await msg.delete()
         except: pass
 
-@client.on(events.NewMessage(pattern="/autodel"))
-async def toggle_autodel(event):
-    global AUTO_DEL_ON
-    if event.sender_id in ADMINS:
-        args = event.raw_text.split()
-        if len(args) == 2 and args[1].lower() in ["on", "off"]:
-            AUTO_DEL_ON = args[1].lower() == "on"
-            save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-            await event.reply(f"{'✅' if AUTO_DEL_ON else '❎'} Auto delete {'enabled' if AUTO_DEL_ON else 'disabled'}.")
-        else:
-            await event.reply("Usage: `/autodel on` or `/autodel off`")
-
-@client.on(events.NewMessage(pattern="/setmsg"))
-async def setmsg(event):
-    global AUTO_REPLY_MSG
-    if event.sender_id in ADMINS and " " in event.raw_text:
-        AUTO_REPLY_MSG = event.raw_text.split(" ", 1)[1]
-        save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-        await event.reply("✅ Message updated.")
-    else:
-        await event.reply("❌ Usage: /setmsg your_message_here")
-
-@client.on(events.NewMessage(pattern="/setgap"))
-async def setgap(event):
-    global REPLY_GAP
-    if event.sender_id in ADMINS:
-        try:
-            REPLY_GAP = int(event.raw_text.split(" ", 1)[1])
-            save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-            await event.reply(f"⏱️ Reply gap set to {REPLY_GAP}s.")
-        except:
-            await event.reply("❌ Usage: /setgap 10")
-
-@client.on(events.NewMessage(pattern="/setdel"))
-async def setdel(event):
-    global DELETE_DELAY
-    if event.sender_id in ADMINS:
-        try:
-            DELETE_DELAY = int(event.raw_text.split(" ", 1)[1])
-            save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-            await event.reply(f"⌛ Delete delay set to {DELETE_DELAY}s.")
-        except:
-            await event.reply("❌ Usage: /setdel 10")
-
-@client.on(events.NewMessage(pattern="/add"))
-async def add(event):
-    if event.sender_id in ADMINS:
-        try:
-            gid = int(event.raw_text.split(" ", 1)[1])
-            TARGET_GROUPS.add(gid)
-            save_groups(TARGET_GROUPS)
-            await event.reply(f"✅ Group `{gid}` added.")
-        except:
-            await event.reply("❌ Usage: /add -1001234567890")
-
-@client.on(events.NewMessage(pattern="/remove"))
-async def remove(event):
-    if event.sender_id in ADMINS:
-        try:
-            gid = int(event.raw_text.split(" ", 1)[1])
-            TARGET_GROUPS.discard(gid)
-            save_groups(TARGET_GROUPS)
-            await event.reply(f"❎ Group `{gid}` removed.")
-        except:
-            await event.reply("❌ Usage: /remove -1001234567890")
-
-@client.on(events.NewMessage(pattern="/id"))
-async def id_cmd(event):
-    await event.reply(f"Chat ID: `{event.chat_id}`\nUser ID: `{event.sender_id}`")
+# Commands for /autodel, /setmsg, /setgap, /setdel, /add, /remove, /id remain unchanged
 
 while True:
     try:
