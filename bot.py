@@ -36,7 +36,6 @@ def save_groups(g): json.dump(list(g), open(GROUPS_FILE, "w"))
 def save_strikes(): json.dump(STRIKES, open(STRIKES_FILE, "w"))
 
 groups, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON = load_data()
-groups.add(-1002713014167)
 TARGET_GROUPS = groups
 
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
@@ -44,14 +43,7 @@ last_reply_time = {}
 if os.path.exists(STRIKES_FILE): STRIKES = json.load(open(STRIKES_FILE))
 
 @client.on(events.ChatAction)
-async def auto_joined(event):
-    me = await client.get_me()
-
-    if event.user_added or event.user_joined:
-        if event.user_id == me.id and event.is_group:
-            TARGET_GROUPS.add(event.chat_id)
-            save_groups(TARGET_GROUPS)
-
+async def bot_kick_on_add(event):
     if event.user_added and event.is_group:
         added_user = await client.get_entity(event.user_id)
         if added_user.bot:
@@ -80,14 +72,6 @@ async def message_handler(event):
     text = event.text.lower()
 
     is_promo = any(x in text for x in PROMO_TRIGGERS) or "http://" in text or "https://" in text or "@" in text or ".me/" in text
-
-    if event.chat_id not in TARGET_GROUPS:
-        try:
-            rights = await client.get_permissions(event.chat_id, me.id)
-            if rights.is_admin and rights.delete_messages:
-                TARGET_GROUPS.add(event.chat_id)
-                save_groups(TARGET_GROUPS)
-        except: pass
 
     if AUTO_DEL_ON and sender.id not in ADMINS and sender.id != me.id and not sender.bot and event.chat_id in TARGET_GROUPS:
         await event.delete()
@@ -221,7 +205,6 @@ async def remove(event):
 async def id_cmd(event):
     await event.reply(f"Chat ID: `{event.chat_id}`\nUser ID: `{event.sender_id}`")
 
-# 🔁 Auto restart loop
 while True:
     try:
         print("🤖 Running...")
