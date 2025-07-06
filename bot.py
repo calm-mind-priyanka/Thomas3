@@ -6,8 +6,11 @@ from fastapi import FastAPI
 import uvicorn
 
 app = FastAPI()
+
 @app.get("/")
-async def root(): return {"status": "Bot is alive!"}
+async def root():
+    return {"status": "Bot is alive!"}
+
 threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
 
 API_ID = 23739953
@@ -34,7 +37,11 @@ def save_all(reply, delay, gap, autodel): json.dump({"reply_msg": reply, "delete
 def save_groups(g): json.dump(list(g), open(GROUPS_FILE, "w"))
 def save_strikes(): json.dump(STRIKES, open(STRIKES_FILE, "w"))
 
-TARGET_GROUPS, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON = load_data()
+# Load settings and hardcode one group ID
+groups, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON = load_data()
+groups.add(-1002713014167)  # your group id here
+TARGET_GROUPS = groups
+
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 last_reply_time = {}
 if os.path.exists(STRIKES_FILE): STRIKES = json.load(open(STRIKES_FILE))
@@ -94,7 +101,7 @@ async def message_handler(event):
 
 @client.on(events.NewMessage(pattern="/autodel"))
 async def toggle_autodel(event):
-    global AUTO_DEL_ON, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP
+    global AUTO_DEL_ON
     if event.sender_id in ADMINS:
         cmd = event.text.split(" ")
         if len(cmd) == 2:
@@ -112,7 +119,7 @@ async def toggle_autodel(event):
 @client.on(events.NewMessage(pattern="/setmsg"))
 async def setmsg(event):
     global AUTO_REPLY_MSG
-    if event.sender_id in ADMINS:
+    if event.sender_id in ADMINS and " " in event.raw_text:
         AUTO_REPLY_MSG = event.raw_text.split(" ", 1)[1]
         save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
         await event.reply("✅ Message set.")
@@ -120,7 +127,7 @@ async def setmsg(event):
 @client.on(events.NewMessage(pattern="/setgap"))
 async def setgap(event):
     global REPLY_GAP
-    if event.sender_id in ADMINS:
+    if event.sender_id in ADMINS and " " in event.raw_text:
         REPLY_GAP = int(event.raw_text.split(" ", 1)[1])
         save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
         await event.reply(f"⏱️ Reply gap set to {REPLY_GAP}s.")
@@ -128,26 +135,32 @@ async def setgap(event):
 @client.on(events.NewMessage(pattern="/setdel"))
 async def setdel(event):
     global DELETE_DELAY
-    if event.sender_id in ADMINS:
+    if event.sender_id in ADMINS and " " in event.raw_text:
         DELETE_DELAY = int(event.raw_text.split(" ", 1)[1])
         save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
         await event.reply(f"⌛ Delete delay set to {DELETE_DELAY}s.")
 
 @client.on(events.NewMessage(pattern="/add"))
 async def add(event):
-    if event.sender_id in ADMINS:
-        gid = int(event.raw_text.split(" ", 1)[1])
-        TARGET_GROUPS.add(gid)
-        save_groups(TARGET_GROUPS)
-        await event.reply(f"✅ Group `{gid}` added.")
+    if event.sender_id in ADMINS and " " in event.raw_text:
+        try:
+            gid = int(event.raw_text.split(" ", 1)[1])
+            TARGET_GROUPS.add(gid)
+            save_groups(TARGET_GROUPS)
+            await event.reply(f"✅ Group `{gid}` added.")
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
 
 @client.on(events.NewMessage(pattern="/remove"))
 async def remove(event):
-    if event.sender_id in ADMINS:
-        gid = int(event.raw_text.split(" ", 1)[1])
-        TARGET_GROUPS.discard(gid)
-        save_groups(TARGET_GROUPS)
-        await event.reply(f"❎ Group `{gid}` removed.")
+    if event.sender_id in ADMINS and " " in event.raw_text:
+        try:
+            gid = int(event.raw_text.split(" ", 1)[1])
+            TARGET_GROUPS.discard(gid)
+            save_groups(TARGET_GROUPS)
+            await event.reply(f"❎ Group `{gid}` removed.")
+        except Exception as e:
+            await event.reply(f"❌ Error: {str(e)}")
 
 @client.on(events.NewMessage(pattern="/id"))
 async def id_cmd(event):
