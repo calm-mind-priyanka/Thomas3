@@ -1,6 +1,6 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import os, asyncio, json, threading, time
+import os, asyncio, json, threading, time, random
 from fastapi import FastAPI
 import uvicorn
 
@@ -139,39 +139,45 @@ async def message_handler(event):
     text = event.text.lower()
     is_promo = any(x in text for x in PROMO_TRIGGERS) or len(text) > 100
 
-    # ✅ Promotion or spam text auto-delete if userbot is admin and autodel is on
+    # Auto-delete if autodel is on and userbot is admin
     if AUTO_DEL_ON and sender.id != me.id and not sender.bot:
         perms = await client.get_permissions(event.chat_id, me.id)
         if perms.is_admin:
             await event.delete()
             return
 
-    # ✅ Member replies with promotion text — strike-based punishment (no need for /add)
+    # Promotion detection on reply
     if event.is_reply and sender.id != me.id and not sender.bot:
         reply = await event.get_reply_message()
-        if reply and reply.sender_id != me.id and is_promo:
-            key = f"{event.chat_id}_{sender.id}"
-            STRIKES[key] = STRIKES.get(key, 0) + 1
-            level = STRIKES[key]
-            save_strikes()
-            await event.delete()
-            if level == 1:
-                msg = await event.reply("⚠️ First Warning! Apna dhandha yahan nahi.")
-                await asyncio.sleep(5); await msg.delete()
-            elif level == 2:
-                msg = await event.reply("⛔ Second Warning! Agli baar mute milega.")
-                await asyncio.sleep(5); await msg.delete()
-            elif level == 3:
-                await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
-                msg = await event.reply("🤐 Muted for 5 minutes.")
-                await asyncio.sleep(300)
-                await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
-                await asyncio.sleep(2); await msg.delete()
+        if reply and reply.sender_id != me.id:
+            if is_promo:
+                key = f"{event.chat_id}_{sender.id}"
+                STRIKES[key] = STRIKES.get(key, 0) + 1
+                level = STRIKES[key]
+                save_strikes()
+                await event.delete()
+                if level == 1:
+                    msg = await event.reply("⚠️ First Warning! Apna dhandha yahan nahi.")
+                    await asyncio.sleep(5); await msg.delete()
+                elif level == 2:
+                    msg = await event.reply("⛔ Second Warning! Agli baar mute milega.")
+                    await asyncio.sleep(5); await msg.delete()
+                elif level == 3:
+                    await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
+                    msg = await event.reply("🤐 Muted for 5 minutes.")
+                    await asyncio.sleep(300)
+                    await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
+                    await asyncio.sleep(2); await msg.delete()
+                else:
+                    await client.kick_participant(event.chat_id, sender.id)
+                    await event.respond("🔨 Banned for repeated promotions.")
             else:
-                await client.kick_participant(event.chat_id, sender.id)
-                await event.respond("🔨 Banned for repeated promotions.")
+                # Non-promo reply: funny response
+                msg = await event.reply(random.choice(FUNNY_RESPONSES))
+                await asyncio.sleep(5)
+                await msg.delete()
 
-    # ✅ Auto-reply only in added groups
+    # Auto-reply for added groups only
     if event.chat_id in TARGET_GROUPS and sender.id != me.id and not sender.bot:
         if now - last_reply_time.get(event.chat_id, 0) >= REPLY_GAP:
             last_reply_time[event.chat_id] = now
