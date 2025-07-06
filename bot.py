@@ -56,54 +56,52 @@ async def message_handler(event):
     if not event.is_group: return
     sender = await event.get_sender()
     me = await client.get_me()
+    now = time.time()
 
-    if event.chat_id in TARGET_GROUPS:
-        now = time.time()
+    # ✅ Auto delete normal messages only if /autodel is enabled AND group is added
+    if AUTO_DEL_ON and sender.id not in ADMINS and sender.id != me.id and not sender.bot and event.chat_id in TARGET_GROUPS:
+        await event.delete()
+        return
 
-        # Only delete if not admin and not userbot
-        if AUTO_DEL_ON and sender.id not in ADMINS and sender.id != me.id and not sender.bot:
-            await event.delete()
-            return
-
-        if event.is_reply and sender.id not in ADMINS and not sender.bot:
-            reply = await event.get_reply_message()
-            if reply.sender_id != me.id:
-                text = event.text.lower()
-                if any(x in text for x in PROMO_TRIGGERS):
-                    key = f"{event.chat_id}_{sender.id}"
-                    STRIKES[key] = STRIKES.get(key, 0) + 1
-                    level = STRIKES[key]
-                    save_strikes()
-                    await event.delete()
-                    if level == 1:
-                        msg = await event.reply("⚠️ First Warning! Yahaan apna dhandha mat chalao.")
-                        await asyncio.sleep(5); await msg.delete()
-                    elif level == 2:
-                        msg = await event.reply("⛔ Second Warning! Agli baar mute milega.")
-                        await asyncio.sleep(5); await msg.delete()
-                    elif level == 3:
-                        await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
-                        msg = await event.reply("🤐 Muted for 5 minutes. Samajh ja!")
-                        await asyncio.sleep(300)
-                        await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
-                        await asyncio.sleep(3); await msg.delete()
-                    else:
-                        await client.kick_participant(event.chat_id, sender.id)
-                        await event.respond("🔨 Permanent Ban! Yeh group tera nahi.")
+    # ✅ Always active: if user replies to another (not bot), check and act
+    if event.is_reply and sender.id not in ADMINS and not sender.bot:
+        reply = await event.get_reply_message()
+        if reply and reply.sender_id != me.id:
+            text = event.text.lower()
+            if any(x in text for x in PROMO_TRIGGERS):
+                key = f"{event.chat_id}_{sender.id}"
+                STRIKES[key] = STRIKES.get(key, 0) + 1
+                level = STRIKES[key]
+                save_strikes()
+                await event.delete()
+                if level == 1:
+                    msg = await event.reply("⚠️ First Warning! Yahaan apna dhandha mat chalao.")
+                    await asyncio.sleep(5); await msg.delete()
+                elif level == 2:
+                    msg = await event.reply("⛔ Second Warning! Agli baar mute milega.")
+                    await asyncio.sleep(5); await msg.delete()
+                elif level == 3:
+                    await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
+                    msg = await event.reply("🤐 Muted for 5 minutes. Samajh ja!")
+                    await asyncio.sleep(300)
+                    await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
+                    await asyncio.sleep(3); await msg.delete()
                 else:
-                    await event.delete()
-                    msg = await event.respond(FUNNY_RESPONSES[hash(sender.id) % len(FUNNY_RESPONSES)])
-                    await asyncio.sleep(4); await msg.delete()
+                    await client.kick_participant(event.chat_id, sender.id)
+                    await event.respond("🔨 Permanent Ban! Yeh group tera nahi.")
+            else:
+                await event.delete()
+                msg = await event.respond(FUNNY_RESPONSES[hash(sender.id) % len(FUNNY_RESPONSES)])
+                await asyncio.sleep(4); await msg.delete()
 
-        # Auto reply to message
-        if sender.id != me.id and not sender.bot and now - last_reply_time.get(event.chat_id, 0) >= REPLY_GAP:
-            last_reply_time[event.chat_id] = now
-            msg = await event.reply(AUTO_REPLY_MSG)
-            await asyncio.sleep(DELETE_DELAY)
-            try: await msg.delete()
-            except: pass
+    # 🟡 Auto reply works only in added groups
+    if event.chat_id in TARGET_GROUPS and sender.id != me.id and not sender.bot and now - last_reply_time.get(event.chat_id, 0) >= REPLY_GAP:
+        last_reply_time[event.chat_id] = now
+        msg = await event.reply(AUTO_REPLY_MSG)
+        await asyncio.sleep(DELETE_DELAY)
+        try: await msg.delete()
+        except: pass
 
-# Command handlers
 @client.on(events.NewMessage(pattern="/autodel"))
 async def toggle_autodel(event):
     global AUTO_DEL_ON
