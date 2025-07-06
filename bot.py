@@ -1,16 +1,14 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors import ChatWriteForbiddenError
 import os, asyncio, json, threading, time
 from fastapi import FastAPI
 import uvicorn
 
+# FastAPI for health check
 app = FastAPI()
-
 @app.get("/")
 async def root():
     return {"status": "Bot is alive!"}
-
 threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
 
 API_ID = 23739953
@@ -37,9 +35,8 @@ def save_all(reply, delay, gap, autodel): json.dump({"reply_msg": reply, "delete
 def save_groups(g): json.dump(list(g), open(GROUPS_FILE, "w"))
 def save_strikes(): json.dump(STRIKES, open(STRIKES_FILE, "w"))
 
-# Load settings and hardcode one group ID
 groups, AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON = load_data()
-groups.add(-1002713014167)  # your group id here
+groups.add(-1002713014167)  # your group ID
 TARGET_GROUPS = groups
 
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
@@ -59,10 +56,16 @@ async def message_handler(event):
     if not event.is_group: return
     sender = await event.get_sender()
     me = await client.get_me()
+
     if event.chat_id in TARGET_GROUPS:
-        if AUTO_DEL_ON and sender.id not in ADMINS and not sender.bot:
-            await event.delete(); return
-        if event.is_reply and sender.id not in ADMINS:
+        now = time.time()
+
+        # Only delete if not admin and not userbot
+        if AUTO_DEL_ON and sender.id not in ADMINS and sender.id != me.id and not sender.bot:
+            await event.delete()
+            return
+
+        if event.is_reply and sender.id not in ADMINS and not sender.bot:
             reply = await event.get_reply_message()
             if reply.sender_id != me.id:
                 text = event.text.lower()
@@ -91,7 +94,8 @@ async def message_handler(event):
                     await event.delete()
                     msg = await event.respond(FUNNY_RESPONSES[hash(sender.id) % len(FUNNY_RESPONSES)])
                     await asyncio.sleep(4); await msg.delete()
-        now = time.time()
+
+        # Auto reply to message
         if sender.id != me.id and not sender.bot and now - last_reply_time.get(event.chat_id, 0) >= REPLY_GAP:
             last_reply_time[event.chat_id] = now
             msg = await event.reply(AUTO_REPLY_MSG)
@@ -99,22 +103,18 @@ async def message_handler(event):
             try: await msg.delete()
             except: pass
 
+# Command handlers
 @client.on(events.NewMessage(pattern="/autodel"))
 async def toggle_autodel(event):
     global AUTO_DEL_ON
     if event.sender_id in ADMINS:
-        cmd = event.text.split(" ")
-        if len(cmd) == 2:
-            if cmd[1].lower() == "on":
-                AUTO_DEL_ON = True
-                save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-                await event.reply("✅ Auto delete for members enabled.")
-            elif cmd[1].lower() == "off":
-                AUTO_DEL_ON = False
-                save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-                await event.reply("❎ Auto delete for members disabled.")
-            else:
-                await event.reply("Usage: `/autodel on` or `/autodel off`")
+        args = event.raw_text.split()
+        if len(args) == 2 and args[1].lower() in ["on", "off"]:
+            AUTO_DEL_ON = args[1].lower() == "on"
+            save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
+            await event.reply(f"{'✅' if AUTO_DEL_ON else '❎'} Auto delete {'enabled' if AUTO_DEL_ON else 'disabled'}.")
+        else:
+            await event.reply("Usage: `/autodel on` or `/autodel off`")
 
 @client.on(events.NewMessage(pattern="/setmsg"))
 async def setmsg(event):
@@ -122,50 +122,64 @@ async def setmsg(event):
     if event.sender_id in ADMINS and " " in event.raw_text:
         AUTO_REPLY_MSG = event.raw_text.split(" ", 1)[1]
         save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-        await event.reply("✅ Message set.")
+        await event.reply("✅ Message updated.")
+    else:
+        await event.reply("❌ Usage: /setmsg your_message_here")
 
 @client.on(events.NewMessage(pattern="/setgap"))
 async def setgap(event):
     global REPLY_GAP
-    if event.sender_id in ADMINS and " " in event.raw_text:
-        REPLY_GAP = int(event.raw_text.split(" ", 1)[1])
-        save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-        await event.reply(f"⏱️ Reply gap set to {REPLY_GAP}s.")
+    if event.sender_id in ADMINS:
+        try:
+            REPLY_GAP = int(event.raw_text.split(" ", 1)[1])
+            save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
+            await event.reply(f"⏱️ Reply gap set to {REPLY_GAP}s.")
+        except:
+            await event.reply("❌ Usage: /setgap 10")
 
 @client.on(events.NewMessage(pattern="/setdel"))
 async def setdel(event):
     global DELETE_DELAY
-    if event.sender_id in ADMINS and " " in event.raw_text:
-        DELETE_DELAY = int(event.raw_text.split(" ", 1)[1])
-        save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
-        await event.reply(f"⌛ Delete delay set to {DELETE_DELAY}s.")
+    if event.sender_id in ADMINS:
+        try:
+            DELETE_DELAY = int(event.raw_text.split(" ", 1)[1])
+            save_all(AUTO_REPLY_MSG, DELETE_DELAY, REPLY_GAP, AUTO_DEL_ON)
+            await event.reply(f"⌛ Delete delay set to {DELETE_DELAY}s.")
+        except:
+            await event.reply("❌ Usage: /setdel 10")
 
 @client.on(events.NewMessage(pattern="/add"))
 async def add(event):
-    if event.sender_id in ADMINS and " " in event.raw_text:
+    if event.sender_id in ADMINS:
         try:
             gid = int(event.raw_text.split(" ", 1)[1])
             TARGET_GROUPS.add(gid)
             save_groups(TARGET_GROUPS)
             await event.reply(f"✅ Group `{gid}` added.")
-        except Exception as e:
-            await event.reply(f"❌ Error: {str(e)}")
+        except:
+            await event.reply("❌ Usage: /add -1001234567890")
 
 @client.on(events.NewMessage(pattern="/remove"))
 async def remove(event):
-    if event.sender_id in ADMINS and " " in event.raw_text:
+    if event.sender_id in ADMINS:
         try:
             gid = int(event.raw_text.split(" ", 1)[1])
             TARGET_GROUPS.discard(gid)
             save_groups(TARGET_GROUPS)
             await event.reply(f"❎ Group `{gid}` removed.")
-        except Exception as e:
-            await event.reply(f"❌ Error: {str(e)}")
+        except:
+            await event.reply("❌ Usage: /remove -1001234567890")
 
 @client.on(events.NewMessage(pattern="/id"))
 async def id_cmd(event):
     await event.reply(f"Chat ID: `{event.chat_id}`\nUser ID: `{event.sender_id}`")
 
-print("🤖 Running...")
-client.start()
-client.run_until_disconnected()
+# 🔁 Auto restart loop
+while True:
+    try:
+        print("🤖 Running...")
+        client.start()
+        client.run_until_disconnected()
+    except Exception as e:
+        print(f"⚠️ Error: {e}\n🔁 Restarting in 5 seconds...")
+        time.sleep(5)
