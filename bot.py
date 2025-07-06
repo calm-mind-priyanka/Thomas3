@@ -146,7 +146,7 @@ async def message_handler(event):
             await event.delete()
             return
 
-    # Promotion detection on reply
+    # Handle reply promotions or chats
     if event.is_reply and sender.id != me.id and not sender.bot:
         reply = await event.get_reply_message()
         if reply and reply.sender_id != me.id:
@@ -172,12 +172,35 @@ async def message_handler(event):
                     await client.kick_participant(event.chat_id, sender.id)
                     await event.respond("🔨 Banned for repeated promotions.")
             else:
-                # Non-promo reply: funny response
+                await event.delete()
                 msg = await event.reply(random.choice(FUNNY_RESPONSES))
                 await asyncio.sleep(5)
                 await msg.delete()
 
-    # Auto-reply for added groups only
+    # Handle direct promo messages (not replies)
+    if is_promo and sender.id != me.id and not sender.bot:
+        key = f"{event.chat_id}_{sender.id}"
+        STRIKES[key] = STRIKES.get(key, 0) + 1
+        level = STRIKES[key]
+        save_strikes()
+        await event.delete()
+        if level == 1:
+            msg = await event.reply("⚠️ First Warning! Apna dhandha yahan nahi.")
+            await asyncio.sleep(5); await msg.delete()
+        elif level == 2:
+            msg = await event.reply("⛔ Second Warning! Agli baar mute milega.")
+            await asyncio.sleep(5); await msg.delete()
+        elif level == 3:
+            await client.edit_permissions(event.chat_id, sender.id, send_messages=False)
+            msg = await event.reply("🤐 Muted for 5 minutes.")
+            await asyncio.sleep(300)
+            await client.edit_permissions(event.chat_id, sender.id, send_messages=True)
+            await asyncio.sleep(2); await msg.delete()
+        else:
+            await client.kick_participant(event.chat_id, sender.id)
+            await event.respond("🔨 Banned for repeated promotions.")
+
+    # Auto-reply only in added groups
     if event.chat_id in TARGET_GROUPS and sender.id != me.id and not sender.bot:
         if now - last_reply_time.get(event.chat_id, 0) >= REPLY_GAP:
             last_reply_time[event.chat_id] = now
