@@ -86,7 +86,7 @@ async def handle2(event):
     except ChatWriteForbiddenError: pass
     except Exception as e: logging.error(f"[Bot2] {e}")
 
-# Admins Commands Bot 1
+# Admin Commands Bot 1
 @client1.on(events.NewMessage(pattern="/add"))
 async def add1(e): 
     if e.sender_id == ADMIN1: groups1.add(e.chat_id); save_groups(GROUPS_FILE1, groups1); await e.reply("✅ Added")
@@ -156,11 +156,11 @@ async def status2(e):
     if e.sender_id == ADMIN2:
         await e.reply(f"🔧 Bot2 Status:\nGroups: {len(groups2)}\nMsg: {msg2}\nGap: {gap2}s\nDelete: {delay2}s")
 
-# Start Bots with Isolation
+# Start Bots with Await
 async def start_clients():
-    try: client1.start()
+    try: await client1.start()
     except Exception as e: logging.error(f"[Client1 Start Failed] {e}")
-    try: client2.start()
+    try: await client2.start()
     except Exception as e: logging.error(f"[Client2 Start Failed] {e}")
 
     tasks = []
