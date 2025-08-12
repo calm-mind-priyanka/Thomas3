@@ -1,7 +1,10 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors import ChatWriteForbiddenError
-from telethon.tl.types import MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention
+from telethon.tl.types import (
+    MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention,
+    UserStatusOnline, UserStatusOffline
+)
 import os, asyncio, json, threading, time
 from fastapi import FastAPI
 import uvicorn
@@ -23,6 +26,11 @@ API_ID = 27611770
 API_HASH = "6950f9a1b53b3453e745bc893b28e54d"
 SESSION = "1BVtsOJwBu8SVdXduJm6biZuzJ2xhf3CS11q6VMAwKFOVWjYb6nGpc2CG5CCCVYXOzH65QRrp-KDenlBJTxsRIZsb182eaRaFd_bhN38BCCl8w5FNzfBADTdS_-coGiKBtnnQnvgun_B-d53MoWDn2YgeK2KYg7UGs5rXnqgVGMo9MznnlDm1UW0_M4nyreud8O2hEXcfy5h3TDUCGMo2axNXPZzsxPHIHyVDRdcNb5YcbDiVTC8vgyibhHoPyIQU5j2iS0tGrp9P-NHFgbRM3tKvC3KePP_jkxQWwbdMTcGD-NwGRLPi5HuYdpsGPMm5U2iiceX9tvqcvh2TokjsErSsf_tplts="
 ADMIN = 2056329003
+
+# Emergency watch feature
+WATCHED_ADMIN_ID = None  # Put the admin's ID here if you want to enable, else keep None
+emergency_stop = False
+last_sent_messages = {}  # store last sent message per chat
 
 GROUPS_FILE = "groups.json"
 SETTINGS_FILE = "settings.json"
@@ -69,14 +77,19 @@ async def delete_later(m, sec):
 # Message handler for groups
 @client.on(events.NewMessage(incoming=True))
 async def handler(event):
+    global emergency_stop
+
     try:
+        # Stop if emergency mode is active
+        if emergency_stop:
+            return
+
         if event.is_private:
             if pm_msg:
                 m = await event.reply(pm_msg)
                 asyncio.create_task(delete_later(m, 60))
             return
 
-        # Only reply in allowed groups
         if event.chat_id not in groups:
             return
         if event.sender.bot:
@@ -86,7 +99,7 @@ async def handler(event):
         if event.message.entities:
             for ent in event.message.entities:
                 if isinstance(ent, (MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention)):
-                    return  # Ignore message completely
+                    return
 
         now = time.time()
         if now - last_reply.get(event.chat_id, 0) < gap:
@@ -94,6 +107,7 @@ async def handler(event):
         last_reply[event.chat_id] = now
 
         m = await event.reply(msg)
+        last_sent_messages[event.chat_id] = m  # store last message
         if delay > 0:
             asyncio.create_task(delete_later(m, delay))
 
@@ -102,10 +116,29 @@ async def handler(event):
     except Exception as e:
         logging.error(f"[Handler Error] {e}")
 
+# Watch for watched admin online/offline
+@client.on(events.UserUpdate)
+async def watch_admin(event):
+    global emergency_stop
+    if WATCHED_ADMIN_ID and event.user_id == WATCHED_ADMIN_ID:
+        if isinstance(event.status, UserStatusOnline):
+            print("🚨 Watched admin is online! Emergency stop activated.")
+            emergency_stop = True
+            for chat_id, msg_obj in list(last_sent_messages.items()):
+                try:
+                    await msg_obj.delete()
+                    print(f"Deleted last message in {chat_id}")
+                except:
+                    pass
+            last_sent_messages.clear()
+        elif isinstance(event.status, UserStatusOffline):
+            print("✅ Watched admin went offline. Resuming bot.")
+            emergency_stop = False
+
 # Admin commands only for ADMIN
 @client.on(events.NewMessage(from_users=ADMIN))
 async def admin_handler(e):
-    global msg, delay, gap, pm_msg
+    global msg, delay, gap, pm_msg, WATCHED_ADMIN_ID
     txt = e.raw_text.strip()
 
     if e.is_private:
@@ -137,6 +170,17 @@ async def admin_handler(e):
             save_settings(msg, delay, gap, pm_msg)
             return await e.reply("❌ PM auto-reply turned off.")
 
+        elif txt.startswith("/setwatch "):
+            try:
+                WATCHED_ADMIN_ID = int(txt.split(" ", 1)[1])
+                return await e.reply(f"✅ Watching admin ID: {WATCHED_ADMIN_ID}")
+            except:
+                return await e.reply("❌ Usage: /setwatch 123456789")
+
+        elif txt == "/removewatch":
+            WATCHED_ADMIN_ID = None
+            return await e.reply("❌ Watch removed.")
+
     if txt == "/add":
         groups.add(e.chat_id)
         save_groups(groups)
@@ -163,7 +207,7 @@ async def admin_handler(e):
         await e.reply("✅ Gap set")
 
     elif txt == "/status":
-        await e.reply(f"Groups: {len(groups)}\nMsg: {msg}\nPM msg: {pm_msg or '❌ Off'}\nDel: {delay}s\nGap: {gap}s")
+        await e.reply(f"Groups: {len(groups)}\nMsg: {msg}\nPM msg: {pm_msg or '❌ Off'}\nDel: {delay}s\nGap: {gap}s\nWatch: {WATCHED_ADMIN_ID or '❌ Off'}")
 
     elif txt == "/ping":
         await e.reply("🏓 Bot is alive!")
