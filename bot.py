@@ -1,11 +1,11 @@
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors import ChatWriteForbiddenError
+from telethon.errors import ChatWriteForbiddenError, FloodWaitError
 from telethon.tl.types import (
     MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention,
     UserStatusOnline, UserStatusOffline
 )
-import os, asyncio, json, threading, time
+import os, asyncio, json, threading, time, sys
 from fastapi import FastAPI
 import uvicorn
 import logging
@@ -63,6 +63,12 @@ def save_settings(msg, d, g, pm_msg):
 groups, msg, delay, gap, pm_msg = load_data()
 last_reply = {}
 
+# Tracking bot usage for warnings and restart
+start_time = time.time()
+message_count = 0
+warned_admin_about_slow = False
+warned_admin_about_flood = False
+
 # Client
 client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 
@@ -74,13 +80,19 @@ async def delete_later(m, sec):
     except:
         pass
 
-# Message handler for groups
+# Send admin notification helper
+async def notify_admin(text):
+    try:
+        await client.send_message(ADMIN, text)
+    except Exception as e:
+        logging.error(f"Failed to notify admin: {e}")
+
+# Message handler for groups and PMs
 @client.on(events.NewMessage(incoming=True))
 async def handler(event):
-    global emergency_stop
+    global emergency_stop, message_count, warned_admin_about_slow, warned_admin_about_flood
 
     try:
-        # Stop if emergency mode is active
         if emergency_stop:
             return
 
@@ -106,15 +118,34 @@ async def handler(event):
             return
         last_reply[event.chat_id] = now
 
+        # Track message count
+        message_count += 1
+
+        # Check if slow warning needed (e.g. after 6 hours or 1000 messages)
+        uptime = now - start_time
+        if not warned_admin_about_slow and (uptime > 6 * 3600 or message_count > 1000):
+            await notify_admin("⚠️ Bot has been running for a long time or processed many messages and may slow down soon. Use /restart to refresh.")
+            warned_admin_about_slow = True
+
         m = await event.reply(msg)
         last_sent_messages[event.chat_id] = m  # store last message
         if delay > 0:
             asyncio.create_task(delete_later(m, delay))
 
+    except FloodWaitError as fwe:
+        # Notify admin about flood wait time before stopping
+        if not warned_admin_about_flood:
+            await notify_admin(f"🚨 FloodWait detected! Sleeping for {fwe.seconds} seconds. Please wait before sending more messages.")
+            warned_admin_about_flood = True
+        await asyncio.sleep(fwe.seconds)
+        warned_admin_about_flood = False
+
     except ChatWriteForbiddenError:
         pass
+
     except Exception as e:
         logging.error(f"[Handler Error] {e}")
+        await notify_admin(f"❌ Bot encountered an error and might stop: {e}")
 
 # Watch for watched admin online/offline
 @client.on(events.UserUpdate)
@@ -139,6 +170,8 @@ async def watch_admin(event):
 @client.on(events.NewMessage(from_users=ADMIN))
 async def admin_handler(e):
     global msg, delay, gap, pm_msg, WATCHED_ADMIN_ID
+    global warned_admin_about_slow, warned_admin_about_flood, message_count, start_time
+
     txt = e.raw_text.strip()
 
     if e.is_private:
@@ -207,10 +240,19 @@ async def admin_handler(e):
         await e.reply("✅ Gap set")
 
     elif txt == "/status":
-        await e.reply(f"Groups: {len(groups)}\nMsg: {msg}\nPM msg: {pm_msg or '❌ Off'}\nDel: {delay}s\nGap: {gap}s\nWatch: {WATCHED_ADMIN_ID or '❌ Off'}")
+        uptime_sec = time.time() - start_time
+        uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime_sec))
+        await e.reply(
+            f"Groups: {len(groups)}\nMsg: {msg}\nPM msg: {pm_msg or '❌ Off'}\nDel: {delay}s\nGap: {gap}s\nWatch: {WATCHED_ADMIN_ID or '❌ Off'}\nUptime: {uptime_str}\nMessages processed: {message_count}"
+        )
 
     elif txt == "/ping":
         await e.reply("🏓 Bot is alive!")
+
+    elif txt == "/restart":
+        await e.reply("♻️ Restarting bot...")
+        await client.disconnect()
+        # The hosting platform (like Koyeb) will restart the process automatically
 
 # Start bot
 async def start_bot():
@@ -220,5 +262,6 @@ async def start_bot():
         await client.run_until_disconnected()
     except Exception as e:
         logging.error(f"[Startup Error] {e}")
+        await notify_admin(f"❌ Bot failed to start: {e}")
 
-asyncio.get_event_loop().run_until_complete(start_bot())
+asyncio.get
