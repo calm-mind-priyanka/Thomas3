@@ -264,4 +264,5 @@ async def start_bot():
         logging.error(f"[Startup Error] {e}")
         await notify_admin(f"❌ Bot failed to start: {e}")
 
-asyncio.get
+if __name__ == "__main__":
+    asyncio.run(start_bot())
