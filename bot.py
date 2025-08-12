@@ -22,10 +22,10 @@ async def root():
 threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
 
 # Config
-API_ID = 27611770
-API_HASH = "6950f9a1b53b3453e745bc893b28e54d"
-SESSION = "1BVtsOJwBu8SVdXduJm6biZuzJ2xhf3CS11q6VMAwKFOVWjYb6nGpc2CG5CCCVYXOzH65QRrp-KDenlBJTxsRIZsb182eaRaFd_bhN38BCCl8w5FNzfBADTdS_-coGiKBtnnQnvgun_B-d53MoWDn2YgeK2KYg7UGs5rXnqgVGMo9MznnlDm1UW0_M4nyreud8O2hEXcfy5h3TDUCGMo2axNXPZzsxPHIHyVDRdcNb5YcbDiVTC8vgyibhHoPyIQU5j2iS0tGrp9P-NHFgbRM3tKvC3KePP_jkxQWwbdMTcGD-NwGRLPi5HuYdpsGPMm5U2iiceX9tvqcvh2TokjsErSsf_tplts="
-ADMIN = 2056329003
+API_ID = 27190480
+API_HASH = "bfd6f1edb361a7549bd5e2095cdd4028"
+SESSION = "1AZWarzgBu2gLk5KIR8LMrUGINhgcDYN3w-u3Sv56u2gXDA8hyarl3egOXWQTX3EllkmIbLm8__r9F4lb2haeMUVCUX_jR4ytnOXoil5jtaw_LykH_TO0iwqLtUBMJbtpE7QK7-B2aTYQEIsLdm831dMPFg6W6fC_pVC5UaZr-YMI2C8ZLHN6mh9e3jqfMhUSMoHqlZ1uxiH3Ex3xhaIbIfkNhLQEZm_5MWHW0wGMfEx9I6G_N1-igef7cCeQbG5nr7dGYXp-t1AMKza6vZYQ2XZnIVZUvD7axj9W_L9wmRil1q08QsFjdMjV9P7tr5TDQbNep4op0ConDjdvFSlTiwuclN3Y47w="
+ADMIN = 8224854351
 
 # Emergency watch feature
 WATCHED_ADMIN_ID = None  # Put the admin's ID here if you want to enable, else keep None
