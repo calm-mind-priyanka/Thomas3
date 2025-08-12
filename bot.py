@@ -9,6 +9,7 @@ import os, asyncio, json, threading, time, sys
 from fastapi import FastAPI
 import uvicorn
 import logging
+from datetime import datetime, timedelta
 
 # Logging
 logging.basicConfig(level=logging.INFO, filename="error.log", filemode="a",
@@ -25,10 +26,10 @@ threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), dae
 API_ID = 27190480
 API_HASH = "bfd6f1edb361a7549bd5e2095cdd4028"
 SESSION = "1AZWarzgBu2gLk5KIR8LMrUGINhgcDYN3w-u3Sv56u2gXDA8hyarl3egOXWQTX3EllkmIbLm8__r9F4lb2haeMUVCUX_jR4ytnOXoil5jtaw_LykH_TO0iwqLtUBMJbtpE7QK7-B2aTYQEIsLdm831dMPFg6W6fC_pVC5UaZr-YMI2C8ZLHN6mh9e3jqfMhUSMoHqlZ1uxiH3Ex3xhaIbIfkNhLQEZm_5MWHW0wGMfEx9I6G_N1-igef7cCeQbG5nr7dGYXp-t1AMKza6vZYQ2XZnIVZUvD7axj9W_L9wmRil1q08QsFjdMjV9P7tr5TDQbNep4op0ConDjdvFSlTiwuclN3Y47w="
-ADMIN = 8224854351
+ADMIN = 8224854351  # Your Telegram user ID as int
 
 # Emergency watch feature
-WATCHED_ADMIN_ID = None  # Put the admin's ID here if you want to enable, else keep None
+WATCHED_ADMIN_ID = None  # Set admin ID to watch for emergency stop, or None to disable
 emergency_stop = False
 last_sent_messages = {}  # store last sent message per chat
 
@@ -80,7 +81,7 @@ async def delete_later(m, sec):
     except:
         pass
 
-# Send admin notification helper
+# Send admin notification helper with detailed reasons
 async def notify_admin(text):
     try:
         await client.send_message(ADMIN, text)
@@ -94,6 +95,8 @@ async def handler(event):
 
     try:
         if emergency_stop:
+            # Bot is paused due to emergency stop (like admin online)
+            # Notify only once when emergency_stop first detected, avoid spam
             return
 
         if event.is_private:
@@ -104,48 +107,58 @@ async def handler(event):
 
         if event.chat_id not in groups:
             return
-        if event.sender.bot:
+        if event.sender and getattr(event.sender, 'bot', False):
             return
 
-        # Skip clickable messages (links, mentions, etc.)
+        # Skip messages with links, mentions, etc.
         if event.message.entities:
             for ent in event.message.entities:
                 if isinstance(ent, (MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention)):
+                    # Skipping to prevent spam or unwanted triggers
                     return
 
         now = time.time()
         if now - last_reply.get(event.chat_id, 0) < gap:
+            # Reply gap not passed yet to avoid spamming
             return
         last_reply[event.chat_id] = now
 
         # Track message count
         message_count += 1
 
-        # Check if slow warning needed (e.g. after 6 hours or 1000 messages)
+        # Warn admin if bot running too long or processing many messages (suggest restart)
         uptime = now - start_time
         if not warned_admin_about_slow and (uptime > 6 * 3600 or message_count > 1000):
-            await notify_admin("⚠️ Bot has been running for a long time or processed many messages and may slow down soon. Use /restart to refresh.")
+            await notify_admin("⚠️ Bot has been running for long or processed many messages; consider restarting to avoid slowdown.")
             warned_admin_about_slow = True
 
         m = await event.reply(msg)
-        last_sent_messages[event.chat_id] = m  # store last message
+        last_sent_messages[event.chat_id] = m  # store last message for possible deletion
         if delay > 0:
             asyncio.create_task(delete_later(m, delay))
 
     except FloodWaitError as fwe:
-        # Notify admin about flood wait time before stopping
+        seconds = fwe.seconds
+        resume_time = datetime.utcnow() + timedelta(seconds=seconds)
+        resume_str = resume_time.strftime("%Y-%m-%d %H:%M:%S UTC")
         if not warned_admin_about_flood:
-            await notify_admin(f"🚨 FloodWait detected! Sleeping for {fwe.seconds} seconds. Please wait before sending more messages.")
+            await notify_admin(
+                f"🚨 Flood wait detected! Bot sleeping for {seconds} seconds to protect from ban/spam.\n"
+                f"Will resume around: {resume_str}\n"
+                f"Please avoid sending too many messages during this time."
+            )
             warned_admin_about_flood = True
-        await asyncio.sleep(fwe.seconds)
+        await asyncio.sleep(seconds)
         warned_admin_about_flood = False
+        await notify_admin(f"✅ Bot resumed after flood wait at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
     except ChatWriteForbiddenError:
-        pass
+        # Bot cannot write in chat, silently ignore
+        await notify_admin("❌ Bot is forbidden from writing in one or more chats. Check permissions.")
 
     except Exception as e:
         logging.error(f"[Handler Error] {e}")
-        await notify_admin(f"❌ Bot encountered an error and might stop: {e}")
+        await notify_admin(f"❌ Bot encountered an unexpected error and might stop: {e}")
 
 # Watch for watched admin online/offline
 @client.on(events.UserUpdate)
@@ -153,18 +166,17 @@ async def watch_admin(event):
     global emergency_stop
     if WATCHED_ADMIN_ID and event.user_id == WATCHED_ADMIN_ID:
         if isinstance(event.status, UserStatusOnline):
-            print("🚨 Watched admin is online! Emergency stop activated.")
             emergency_stop = True
+            await notify_admin(f"🚨 Emergency stop activated because watched admin is online at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}. Bot paused until admin goes offline.")
             for chat_id, msg_obj in list(last_sent_messages.items()):
                 try:
                     await msg_obj.delete()
-                    print(f"Deleted last message in {chat_id}")
                 except:
                     pass
             last_sent_messages.clear()
         elif isinstance(event.status, UserStatusOffline):
-            print("✅ Watched admin went offline. Resuming bot.")
             emergency_stop = False
+            await notify_admin(f"✅ Emergency stop lifted because watched admin went offline at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}. Bot resumed.")
 
 # Admin commands only for ADMIN
 @client.on(events.NewMessage(from_users=ADMIN))
@@ -227,42 +239,67 @@ async def admin_handler(e):
     elif txt.startswith("/setmsg "):
         msg = txt.split(" ", 1)[1]
         save_settings(msg, delay, gap, pm_msg)
-        await e.reply("✅ Message set")
+        return await e.reply("✅ Reply message set.")
 
     elif txt.startswith("/setdel "):
-        delay = int(txt.split(" ", 1)[1])
-        save_settings(msg, delay, gap, pm_msg)
-        await e.reply("✅ Delete delay set")
+        try:
+            delay = int(txt.split(" ", 1)[1])
+            save_settings(msg, delay, gap, pm_msg)
+            return await e.reply(f"✅ Delete delay set to {delay} seconds.")
+        except:
+            return await e.reply("❌ Usage: /setdel <seconds>")
 
     elif txt.startswith("/setgap "):
-        gap = int(txt.split(" ", 1)[1])
-        save_settings(msg, delay, gap, pm_msg)
-        await e.reply("✅ Gap set")
+        try:
+            gap = int(txt.split(" ", 1)[1])
+            save_settings(msg, delay, gap, pm_msg)
+            return await e.reply(f"✅ Reply gap set to {gap} seconds.")
+        except:
+            return await e.reply("❌ Usage: /setgap <seconds>")
 
     elif txt == "/status":
         uptime_sec = time.time() - start_time
         uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime_sec))
-        await e.reply(
-            f"Groups: {len(groups)}\nMsg: {msg}\nPM msg: {pm_msg or '❌ Off'}\nDel: {delay}s\nGap: {gap}s\nWatch: {WATCHED_ADMIN_ID or '❌ Off'}\nUptime: {uptime_str}\nMessages processed: {message_count}"
+        server_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        group_info_lines = []
+        for gid in groups:
+            try:
+                chat = await client.get_entity(gid)
+                group_info_lines.append(f"{chat.title} ({gid})")
+            except Exception:
+                group_info_lines.append(f"Unknown group ({gid})")
+
+        group_list = "\n".join(group_info_lines) if group_info_lines else "No groups added."
+
+        status_message = (
+            f"🤖 Bot Status\n"
+            f"Server time: {server_time}\n"
+            f"Uptime: {uptime_str}\n"
+            f"Messages processed: {message_count}\n\n"
+            f"Groups ({len(groups)}):\n{group_list}\n\n"
+            f"Reply message: {msg}\n"
+            f"PM auto-reply: {pm_msg or '❌ Off'}\n"
+            f"Delete delay: {delay}s\n"
+            f"Reply gap: {gap}s\n"
+            f"Watch admin: {WATCHED_ADMIN_ID or '❌ Off'}"
         )
+        return await e.reply(status_message)
 
     elif txt == "/ping":
-        await e.reply("🏓 Bot is alive!")
+        return await e.reply("🏓 Bot is alive!")
 
     elif txt == "/restart":
         await e.reply("♻️ Restarting bot...")
         await client.disconnect()
-        # The hosting platform (like Koyeb) will restart the process automatically
+        # The hosting platform should restart the bot automatically
 
 # Start bot
 async def start_bot():
-    try:
-        await client.start()
-        print("✅ Bot running...")
-        await client.run_until_disconnected()
-    except Exception as e:
-        logging.error(f"[Startup Error] {e}")
-        await notify_admin(f"❌ Bot failed to start: {e}")
+    await client.start()
+    print("✅ Bot running...")
+    await client.run_until_disconnected()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(start_bot())
