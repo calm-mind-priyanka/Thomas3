@@ -23,10 +23,10 @@ async def root():
 threading.Thread(target=lambda: uvicorn.run(app, host="0.0.0.0", port=8080), daemon=True).start()
 
 # Config
-API_ID = 27190480
-API_HASH = "bfd6f1edb361a7549bd5e2095cdd4028"
-SESSION = "1AZWarzgBu2gLk5KIR8LMrUGINhgcDYN3w-u3Sv56u2gXDA8hyarl3egOXWQTX3EllkmIbLm8__r9F4lb2haeMUVCUX_jR4ytnOXoil5jtaw_LykH_TO0iwqLtUBMJbtpE7QK7-B2aTYQEIsLdm831dMPFg6W6fC_pVC5UaZr-YMI2C8ZLHN6mh9e3jqfMhUSMoHqlZ1uxiH3Ex3xhaIbIfkNhLQEZm_5MWHW0wGMfEx9I6G_N1-igef7cCeQbG5nr7dGYXp-t1AMKza6vZYQ2XZnIVZUvD7axj9W_L9wmRil1q08QsFjdMjV9P7tr5TDQbNep4op0ConDjdvFSlTiwuclN3Y47w="
-ADMIN = 8224854351  # Your Telegram user ID as int
+API_ID = 25626481
+API_HASH = "a9e1d02e77df46371377822273acff31"
+SESSION = "1AZWarzgBu5L-DOiMp9XS7TCNoEOydKIHUG4nd9v7lyhJJdoVQAencswU9IGES5H4sQ0GsD1ce2mfb2fmV35cFjUNhm7y4plDFAbASDETdJrllM_v5yBoLDo9F3IC20o9FzLQ-znVzqzJZ-CUfC6siOg8rHghDlkMIgAhbqnesSebrfsoUhfswYzvBNA45ZbFgK-mXfDHACA3YfAKmuwLVkK38UquIcjoBVpQj1xf0nwrAor8EBFcox50M9P6x_wJJbPKWTHnrIhU3OwsjGwjxZ3EP1DNvpoi9DUNLH8bqLYbYm4QBNQpw7ceYdhfTSdo4wYDBiwWXF3lFWBgBgCOYxmHCobuOw4="
+ADMIN = 8382954144  # Your Telegram user ID as int
 
 # Emergency watch feature
 WATCHED_ADMIN_ID = None  # Set admin ID to watch for emergency stop, or None to disable
