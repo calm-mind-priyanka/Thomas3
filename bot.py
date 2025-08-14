@@ -37,7 +37,7 @@ threading.Thread(
 ).start()
 
 # =========================
-# Load transfer credentials if exist
+# Load credentials
 # =========================
 if os.path.exists("bot_transfer.json"):
     data = json.load(open("bot_transfer.json"))
@@ -50,7 +50,7 @@ else:
     API_HASH = "bfd6f1edb361a7549bd5e2095cdd4028"
     SESSION = "1AZWarzgBu2gLk5KIR8LMrUGINhgcDYN3w-u3Sv56u2gXDA8hyarl3egOXWQTX3EllkmIbLm8__r9F4lb2haeMUVCUX_jR4ytnOXoil5jtaw_LykH_TO0iwqLtUBMJbtpE7QK7-B2aTYQEIsLdm831dMPFg6W6fC_pVC5UaZr-YMI2C8ZLHN6mh9e3jqfMhUSMoHqlZ1uxiH3Ex3xhaIbIfkNhLQEZm_5MWHW0wGMfEx9I6G_N1-igef7cCeQbG5nr7dGYXp-t1AMKza6vZYQ2XZnIVZUvD7axj9W_L9wmRil1q08QsFjdMjV9P7tr5TDQbNep4op0ConDjdvFSlTiwuclN3Y47w="
     PRIMARY_ADMIN = 8224854351
-SECONDARY_ADMIN = 123456789
+SECONDARY_ADMIN = 123456789  # real secondary admin ID
 
 # =========================
 # Files
@@ -59,7 +59,7 @@ GROUPS_FILE = "groups.json"
 SETTINGS_FILE = "settings.json"
 
 # =========================
-# State / Settings
+# Load state/settings
 # =========================
 def load_data():
     try:
@@ -109,11 +109,12 @@ last_reply = {}
 last_sent_messages = {}
 
 # =========================
-# Emergency stop & watch
+# Emergency stop & flood wait
 # =========================
 WATCHED_ADMIN_ID = None
 WATCH_GRACE_SEC = 5
 emergency_stop = False
+flood_pause_until = 0
 
 # =========================
 # Time helpers
@@ -150,7 +151,7 @@ client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 # =========================
 # Admin DM auto-delete after read
 # =========================
-admin_dm_pending: dict[int, tuple] = {}
+admin_dm_pending = {}
 async def _schedule_delete_after_read(msg, seconds: int):
     admin_dm_pending[msg.id] = (msg, seconds)
 
@@ -177,7 +178,7 @@ async def safe_delete(message, after_sec: float):
     except Exception as e:
         log.warning(f"Delete failed: {e}")
 
-async def notify_admin(text: str, autodel_on_read: bool = True, autodel_sec: int | None = None):
+async def notify_admin(text: str, autodel_on_read=True, autodel_sec=None):
     try:
         await send_rl.wait()
         m = await client.send_message(PRIMARY_ADMIN, text)
@@ -222,7 +223,7 @@ async def admin_handler(e):
 
     txt = (e.raw_text or "").strip()
 
-    # Secondary admin transfers bot
+    # Transfer ownership
     if e.sender_id == SECONDARY_ADMIN and txt.startswith("/transfer "):
         try:
             parts = txt.split(" ", 4)
@@ -238,98 +239,68 @@ async def admin_handler(e):
                     "SESSION": SESSION,
                     "PRIMARY_ADMIN": PRIMARY_ADMIN
                 }, f)
-            await e.reply("✅ Bot credentials updated! Restarting bot to apply new owner...")
+            await e.reply("✅ Bot credentials updated! Restarting bot...")
             await client.disconnect()
-            python = sys.executable
-            os.execv(python, [python] + sys.argv)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
         except Exception as ex:
             await e.reply(f"❌ Error: {ex}")
         return
-
-    # Regular admin commands
-    if e.is_private:
-        if txt.startswith("/addgroup"):
-            try: gid = int(txt.split(" ", 1)[1])
-            except: return await e.reply("❌ Usage: /addgroup -100xxxxxxxxxx")
-            groups.add(gid); save_groups(groups)
-            return await e.reply(f"✅ Added {gid}")
-
-        elif txt.startswith("/removegroup"):
-            try: gid = int(txt.split(" ", 1)[1])
-            except: return await e.reply("❌ Usage: /removegroup -100xxxxxxxxxx")
-            groups.discard(gid); save_groups(groups)
-            return await e.reply(f"❌ Removed {gid}")
-
-        elif txt.startswith("/setmsgpm "):
-            pm_msg = txt.split(" ", 1)[1]
-            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-            return await e.reply("✅ PM auto-reply set.")
-
-        elif txt == "/setmsgpmoff":
-            pm_msg = None
-            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-            return await e.reply("❌ PM auto-reply turned off.")
-
-        elif txt.startswith("/setwatch "):
-            try: WATCHED_ADMIN_ID = int(txt.split(" ", 1)[1])
-            except: return await e.reply("❌ Usage: /setwatch 123456789")
-            return await e.reply(f"✅ Watching admin ID: {WATCHED_ADMIN_ID}")
-
-        elif txt == "/removewatch":
-            WATCHED_ADMIN_ID = None
-            return await e.reply("❌ Watch removed.")
-
-        elif txt.startswith("/setautodel "):
-            try: admin_autodel = int(txt.split(" ", 1)[1])
-            except: return await e.reply("❌ Usage: /setautodel <seconds>")
-            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-            return await e.reply(f"✅ Admin notification auto-delete set to {admin_autodel}s.")
-
-        elif txt.startswith("/setrate "):
-            try:
-                parts = txt.split()
-                rate_send_interval = float(parts[1])
-                rate_edit_interval = float(parts[2])
-                rate_delete_interval = float(parts[3])
-                send_rl = RateLimiter(rate_send_interval, jitter=0.5)
-                edit_rl = RateLimiter(rate_edit_interval, jitter=0.4)
-                delete_rl = RateLimiter(rate_delete_interval, jitter=0.6)
-                save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-                return await e.reply(f"✅ Rates updated.")
-            except: return await e.reply("❌ Usage: /setrate <send> <edit> <delete>")
 
 # =========================
 # Main message handler
 # =========================
 @client.on(events.NewMessage(incoming=True))
 async def handler(event):
-    global emergency_stop
+    global emergency_stop, flood_pause_until
     try:
-        if emergency_stop: return
+        now_ts = time.time()
+
+        # Pause if flood wait active
+        if now_ts < flood_pause_until:
+            return
+
+        if emergency_stop:
+            return
+
         if event.is_private:
             if pm_msg:
                 await asyncio.sleep(random.uniform(0.8, 2.0))
                 m = await send_reply(event, pm_msg)
-                if delay > 0: asyncio.create_task(safe_delete(m, min(delay, 120)))
+                if delay > 0:
+                    asyncio.create_task(safe_delete(m, min(delay, 120)))
             return
 
-        if event.chat_id not in groups: return
-        if event.sender and getattr(event.sender, "bot", False): return
+        if event.chat_id not in groups:
+            return
+        if event.sender and getattr(event.sender, "bot", False):
+            return
         if event.message.entities:
             for ent in event.message.entities:
-                if isinstance(ent, (MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention)): return
+                if isinstance(ent, (MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention)):
+                    return
 
-        now = time.time()
-        if now - last_reply.get(event.chat_id, 0) < gap: return
+        if now_ts - last_reply.get(event.chat_id, 0) < gap:
+            return
 
         await asyncio.sleep(random.uniform(1.0, 2.5))
         last_reply[event.chat_id] = time.time()
         m = await send_reply(event, msg)
         last_sent_messages[event.chat_id] = m
-        if delay > 0: asyncio.create_task(safe_delete(m, delay))
+        if delay > 0:
+            asyncio.create_task(safe_delete(m, delay))
 
     except FloodWaitError as fwe:
-        await asyncio.sleep(int(getattr(fwe, "seconds", 30)))
+        wait_sec = int(getattr(fwe, "seconds", 30))
+        flood_pause_until = time.time() + wait_sec
+        resume_time = fmt_ist(datetime.fromtimestamp(time.time() + wait_sec, tz=timezone.utc))
+        await notify_admin(
+            f"⚠️ Flood wait triggered!\nBot will pause for {wait_sec} seconds.\nWill resume at {resume_time}.",
+            autodel_on_read=True
+        )
+        await asyncio.sleep(wait_sec)
+        flood_pause_until = 0
+        await notify_admin("✅ Flood wait over. Bot resumed.", autodel_on_read=True)
+
     except ChatWriteForbiddenError:
         await notify_admin("❌ Bot forbidden in chat.", autodel_on_read=True)
     except Exception as e:
