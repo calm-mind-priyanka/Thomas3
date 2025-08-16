@@ -151,7 +151,8 @@ client = TelegramClient(StringSession(SESSION), API_ID, API_HASH)
 # =========================
 # Admin DM auto-delete after read
 # =========================
-admin_dm_pending = {}
+admin_dm_pending = {}  # message_id -> (message, delay)
+
 async def _schedule_delete_after_read(msg, seconds: int):
     admin_dm_pending[msg.id] = (msg, seconds)
 
@@ -159,6 +160,15 @@ async def _schedule_delete_after_read(msg, seconds: int):
 async def on_raw_update(update):
     try:
         if isinstance(update, tltypes.UpdateReadHistoryOutbox):
+            peer = update.peer
+            if isinstance(peer, tltypes.PeerUser) and peer.user_id in (PRIMARY_ADMIN, SECONDARY_ADMIN):
+                max_id = update.max_id
+                to_delete = [mid for mid in list(admin_dm_pending.keys()) if mid <= max_id]
+                for mid in to_delete:
+                    msg, sec = admin_dm_pending.pop(mid, (None, None))
+                    if msg:
+                        asyncio.create_task(safe_delete(msg, sec))
+        elif isinstance(update, tltypes.UpdateReadHistoryInbox):
             peer = update.peer
             if isinstance(peer, tltypes.PeerUser) and peer.user_id in (PRIMARY_ADMIN, SECONDARY_ADMIN):
                 max_id = update.max_id
@@ -222,8 +232,8 @@ async def admin_handler(e):
     global send_rl, edit_rl, delete_rl, API_ID, API_HASH, SESSION, PRIMARY_ADMIN
 
     txt = (e.raw_text or "").strip()
-
-    # Transfer ownership
+    
+    # ---- Transfer ----
     if e.sender_id == SECONDARY_ADMIN and txt.startswith("/transfer "):
         try:
             parts = txt.split(" ", 4)
@@ -245,6 +255,81 @@ async def admin_handler(e):
         except Exception as ex:
             await e.reply(f"❌ Error: {ex}")
         return
+    
+    # ---- /ping ----
+    if txt.startswith("/ping"):
+        start_time = time.time()
+        m = await e.reply("Pinging...")
+        end_time = time.time()
+        latency = round((end_time - start_time)*1000)
+        await m.edit(f"Pong! 🏓 {latency}ms")
+        return
+
+    # ---- /status ----
+    if txt.startswith("/status"):
+        uptime = time.time() - os.stat(__file__).st_mtime
+        info = f"Bot Status ✅\nChat count: {len(groups)}\nLast reply per chat: {len(last_reply)}\nEmergency stop: {emergency_stop}"
+        await e.reply(info)
+        return
+
+    # ---- /setmsg ----
+    if txt.startswith("/setmsg "):
+        new_msg = txt[len("/setmsg "):].strip()
+        msg = new_msg
+        save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+        await e.reply(f"✅ Reply message set to:\n{msg}")
+        return
+
+    # ---- /setdel ----
+    if txt.startswith("/setdel "):
+        try:
+            new_delay = int(txt[len("/setdel "):].strip())
+            delay = new_delay
+            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+            await e.reply(f"✅ Delete delay set to {delay} seconds")
+        except:
+            await e.reply("❌ Invalid number for /setdel")
+        return
+
+    # ---- /setgap ----
+    if txt.startswith("/setgap "):
+        try:
+            new_gap = int(txt[len("/setgap "):].strip())
+            gap = new_gap
+            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+            await e.reply(f"✅ Reply gap set to {gap} seconds")
+        except:
+            await e.reply("❌ Invalid number for /setgap")
+        return
+
+    # ---- /setpm ----
+    if txt.startswith("/setpm "):
+        pm_msg = txt[len("/setpm "):].strip()
+        save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+        await e.reply(f"✅ Private message set:\n{pm_msg}")
+        return
+
+    # ---- /addgroup ----
+    if txt.startswith("/addgroup "):
+        try:
+            gid = int(txt[len("/addgroup "):].strip())
+            groups.add(gid)
+            save_groups(groups)
+            await e.reply(f"✅ Added group {gid}")
+        except:
+            await e.reply("❌ Invalid group ID")
+        return
+
+    # ---- /delgroup ----
+    if txt.startswith("/delgroup "):
+        try:
+            gid = int(txt[len("/delgroup "):].strip())
+            groups.discard(gid)
+            save_groups(groups)
+            await e.reply(f"✅ Removed group {gid}")
+        except:
+            await e.reply("❌ Invalid group ID")
+        return
 
 # =========================
 # Main message handler
@@ -254,13 +339,8 @@ async def handler(event):
     global emergency_stop, flood_pause_until
     try:
         now_ts = time.time()
-
-        # Pause if flood wait active
-        if now_ts < flood_pause_until:
-            return
-
-        if emergency_stop:
-            return
+        if now_ts < flood_pause_until: return
+        if emergency_stop: return
 
         if event.is_private:
             if pm_msg:
@@ -270,17 +350,14 @@ async def handler(event):
                     asyncio.create_task(safe_delete(m, min(delay, 120)))
             return
 
-        if event.chat_id not in groups:
-            return
-        if event.sender and getattr(event.sender, "bot", False):
-            return
+        if event.chat_id not in groups: return
+        if event.sender and getattr(event.sender, "bot", False): return
         if event.message.entities:
             for ent in event.message.entities:
                 if isinstance(ent, (MessageEntityUrl, MessageEntityTextUrl, MessageEntityMention)):
                     return
 
-        if now_ts - last_reply.get(event.chat_id, 0) < gap:
-            return
+        if now_ts - last_reply.get(event.chat_id, 0) < gap: return
 
         await asyncio.sleep(random.uniform(1.0, 2.5))
         last_reply[event.chat_id] = time.time()
