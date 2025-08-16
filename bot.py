@@ -225,16 +225,86 @@ async def watch_admin(event):
 # =========================
 # Admin commands
 # =========================
-@client.on(events.NewMessage(from_users=lambda x: x in (PRIMARY_ADMIN, SECONDARY_ADMIN)))
-async def admin_handler(e):
-    global msg, delay, gap, pm_msg, WATCHED_ADMIN_ID
+
+# ---- Primary admin (self) commands ----
+@client.on(events.NewMessage(outgoing=True))
+async def primary_admin_handler(e):
+    global msg, delay, gap, pm_msg
     global admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval
     global send_rl, edit_rl, delete_rl, API_ID, API_HASH, SESSION, PRIMARY_ADMIN
 
     txt = (e.raw_text or "").strip()
-    
-    # ---- Transfer ----
-    if e.sender_id == SECONDARY_ADMIN and txt.startswith("/transfer "):
+
+    if txt.startswith("/ping"):
+        start_time = time.time()
+        m = await e.reply("Pinging...")
+        end_time = time.time()
+        latency = round((end_time - start_time)*1000)
+        await m.edit(f"Pong! 🏓 {latency}ms")
+        return
+
+    if txt.startswith("/status"):
+        info = f"Bot Status ✅\nChat count: {len(groups)}\nLast reply per chat: {len(last_reply)}\nEmergency stop: {emergency_stop}"
+        await e.reply(info)
+        return
+
+    if txt.startswith("/setmsg "):
+        msg = txt[len("/setmsg "):].strip()
+        save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+        await e.reply(f"✅ Reply message set to:\n{msg}")
+        return
+
+    if txt.startswith("/setdel "):
+        try:
+            delay = int(txt[len("/setdel "):].strip())
+            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+            await e.reply(f"✅ Delete delay set to {delay} seconds")
+        except:
+            await e.reply("❌ Invalid number for /setdel")
+        return
+
+    if txt.startswith("/setgap "):
+        try:
+            gap = int(txt[len("/setgap "):].strip())
+            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+            await e.reply(f"✅ Reply gap set to {gap} seconds")
+        except:
+            await e.reply("❌ Invalid number for /setgap")
+        return
+
+    if txt.startswith("/setpm "):
+        pm_msg = txt[len("/setpm "):].strip()
+        save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
+        await e.reply(f"✅ Private message set:\n{pm_msg}")
+        return
+
+    if txt.startswith("/addgroup "):
+        try:
+            gid = int(txt[len("/addgroup "):].strip())
+            groups.add(gid)
+            save_groups(groups)
+            await e.reply(f"✅ Added group {gid}")
+        except:
+            await e.reply("❌ Invalid group ID")
+        return
+
+    if txt.startswith("/delgroup "):
+        try:
+            gid = int(txt[len("/delgroup "):].strip())
+            groups.discard(gid)
+            save_groups(groups)
+            await e.reply(f"✅ Removed group {gid}")
+        except:
+            await e.reply("❌ Invalid group ID")
+        return
+
+# ---- Secondary admin (/transfer) ----
+@client.on(events.NewMessage(from_users=SECONDARY_ADMIN, incoming=True))
+async def secondary_transfer(e):
+    global API_ID, API_HASH, SESSION, PRIMARY_ADMIN
+
+    txt = (e.raw_text or "").strip()
+    if txt.startswith("/transfer "):
         try:
             parts = txt.split(" ", 4)
             new_api_id = int(parts[1])
@@ -254,82 +324,6 @@ async def admin_handler(e):
             os.execv(sys.executable, [sys.executable] + sys.argv)
         except Exception as ex:
             await e.reply(f"❌ Error: {ex}")
-        return
-    
-    # ---- /ping ----
-    if txt.startswith("/ping"):
-        start_time = time.time()
-        m = await e.reply("Pinging...")
-        end_time = time.time()
-        latency = round((end_time - start_time)*1000)
-        await m.edit(f"Pong! 🏓 {latency}ms")
-        return
-
-    # ---- /status ----
-    if txt.startswith("/status"):
-        uptime = time.time() - os.stat(__file__).st_mtime
-        info = f"Bot Status ✅\nChat count: {len(groups)}\nLast reply per chat: {len(last_reply)}\nEmergency stop: {emergency_stop}"
-        await e.reply(info)
-        return
-
-    # ---- /setmsg ----
-    if txt.startswith("/setmsg "):
-        new_msg = txt[len("/setmsg "):].strip()
-        msg = new_msg
-        save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-        await e.reply(f"✅ Reply message set to:\n{msg}")
-        return
-
-    # ---- /setdel ----
-    if txt.startswith("/setdel "):
-        try:
-            new_delay = int(txt[len("/setdel "):].strip())
-            delay = new_delay
-            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-            await e.reply(f"✅ Delete delay set to {delay} seconds")
-        except:
-            await e.reply("❌ Invalid number for /setdel")
-        return
-
-    # ---- /setgap ----
-    if txt.startswith("/setgap "):
-        try:
-            new_gap = int(txt[len("/setgap "):].strip())
-            gap = new_gap
-            save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-            await e.reply(f"✅ Reply gap set to {gap} seconds")
-        except:
-            await e.reply("❌ Invalid number for /setgap")
-        return
-
-    # ---- /setpm ----
-    if txt.startswith("/setpm "):
-        pm_msg = txt[len("/setpm "):].strip()
-        save_settings(msg, delay, gap, pm_msg, admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval)
-        await e.reply(f"✅ Private message set:\n{pm_msg}")
-        return
-
-    # ---- /addgroup ----
-    if txt.startswith("/addgroup "):
-        try:
-            gid = int(txt[len("/addgroup "):].strip())
-            groups.add(gid)
-            save_groups(groups)
-            await e.reply(f"✅ Added group {gid}")
-        except:
-            await e.reply("❌ Invalid group ID")
-        return
-
-    # ---- /delgroup ----
-    if txt.startswith("/delgroup "):
-        try:
-            gid = int(txt[len("/delgroup "):].strip())
-            groups.discard(gid)
-            save_groups(groups)
-            await e.reply(f"✅ Removed group {gid}")
-        except:
-            await e.reply("❌ Invalid group ID")
-        return
 
 # =========================
 # Main message handler
