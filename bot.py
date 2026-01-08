@@ -109,6 +109,11 @@ last_reply = {}
 last_sent_messages = {}
 
 # =========================
+# Bot control
+# =========================
+bot_active = True  # new flag to stop/resume bot
+
+# =========================
 # Emergency stop & flood wait
 # =========================
 WATCHED_ADMIN_ID = None
@@ -225,13 +230,12 @@ async def watch_admin(event):
 # =========================
 # Admin commands
 # =========================
-
-# ---- Primary admin (self) commands ----
 @client.on(events.NewMessage(outgoing=True))
 async def primary_admin_handler(e):
     global msg, delay, gap, pm_msg
     global admin_autodel, rate_send_interval, rate_edit_interval, rate_delete_interval
     global send_rl, edit_rl, delete_rl, API_ID, API_HASH, SESSION, PRIMARY_ADMIN
+    global bot_active  # new
 
     txt = (e.raw_text or "").strip()
 
@@ -244,7 +248,8 @@ async def primary_admin_handler(e):
         return
 
     if txt.startswith("/status"):
-        info = f"Bot Status ✅\nChat count: {len(groups)}\nLast reply per chat: {len(last_reply)}\nEmergency stop: {emergency_stop}"
+        status = "Active ✅" if bot_active else "Stopped ⛔"
+        info = f"Bot Status: {status}\nChat count: {len(groups)}\nLast reply per chat: {len(last_reply)}\nEmergency stop: {emergency_stop}"
         await e.reply(info)
         return
 
@@ -298,6 +303,23 @@ async def primary_admin_handler(e):
             await e.reply("❌ Invalid group ID")
         return
 
+    # --------- New Stop/Resume Commands ----------
+    if txt.startswith("/stopbot"):
+        if bot_active:
+            bot_active = False
+            await e.reply("⛔ Bot stopped. It will not auto-reply until resumed.")
+        else:
+            await e.reply("⚠ Bot is already stopped.")
+        return
+
+    if txt.startswith("/resumebot"):
+        if not bot_active:
+            bot_active = True
+            await e.reply("✅ Bot resumed. Auto-reply is active again.")
+        else:
+            await e.reply("⚠ Bot is already active.")
+        return
+
 # ---- Secondary admin (/transfer) ----
 @client.on(events.NewMessage(from_users=SECONDARY_ADMIN, incoming=True))
 async def secondary_transfer(e):
@@ -330,11 +352,11 @@ async def secondary_transfer(e):
 # =========================
 @client.on(events.NewMessage(incoming=True))
 async def handler(event):
-    global emergency_stop, flood_pause_until
+    global emergency_stop, flood_pause_until, bot_active
     try:
         now_ts = time.time()
         if now_ts < flood_pause_until: return
-        if emergency_stop: return
+        if emergency_stop or not bot_active: return  # respect bot_active flag
 
         if event.is_private:
             if pm_msg:
